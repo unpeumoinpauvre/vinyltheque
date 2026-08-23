@@ -15,7 +15,7 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 app.use(readUser);
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
+app.use(express.static(path.join(__dirname, '..', 'public'), { etag: true, maxAge: 0 }));
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -251,7 +251,7 @@ app.get('/api/lookup', async (req, res) => {
 
 /* ---------------------------------------------------------------- pages */
 
-app.get(['/u/:username', '/login', '/collection'], (_req, res) =>
+app.get(['/u/:username', '/login', '/collection', '/recherche'], (_req, res) =>
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'))
 );
 
