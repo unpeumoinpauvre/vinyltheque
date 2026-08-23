@@ -13,6 +13,102 @@ async function api(url, opts = {}) {
   return data;
 }
 
+/* -------------------------------------------------- recadrage automatique */
+
+async function toCanvas(file, max = 1600) {
+  const bmp = await createImageBitmap(file);
+  const sc = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width * sc), h = Math.round(bmp.height * sc);
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
+  return cv;
+}
+
+/* La pochette est la zone texturée de la photo ; le fond (table, mur, drap)
+   est lisse. On mesure l'énergie des contours ligne par ligne et colonne par
+   colonne, et on garde la plage centrale où cette énergie est forte. */
+function coverBox(cv) {
+  const S = 520;
+  const sc = Math.min(1, S / Math.max(cv.width, cv.height));
+  const w = Math.max(60, Math.round(cv.width * sc));
+  const h = Math.max(60, Math.round(cv.height * sc));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(cv, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+
+  const g = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++)
+    g[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+
+  const rows = new Float32Array(h), cols = new Float32Array(w);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const p = y * w + x;
+      const m = Math.abs(g[p + 1] - g[p - 1]) + Math.abs(g[p + w] - g[p - w]);
+      rows[y] += m; cols[x] += m;
+    }
+  }
+
+  const span = (arr, n) => {
+    const k = Math.max(1, Math.round(n * 0.01));
+    const sm = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let sum = 0, cnt = 0;
+      for (let j = Math.max(0, i - k); j <= Math.min(n - 1, i + k); j++) { sum += arr[j]; cnt++; }
+      sm[i] = sum / cnt;
+    }
+    let peak = 0;
+    for (let i = 0; i < n; i++) if (sm[i] > peak) peak = sm[i];
+    const th = peak * 0.20;
+    let a = 0, b = n - 1;
+    while (a < n - 1 && sm[a] < th) a++;
+    while (b > a && sm[b] < th) b--;
+    return [a, b];
+  };
+
+  const [y0, y1] = span(rows, h), [x0, x1] = span(cols, w);
+  const k = 1 / sc;
+  return { x0: x0 * k, y0: y0 * k, x1: (x1 + 1) * k, y1: (y1 + 1) * k };
+}
+
+/* Renvoie un JPEG recadré, ou null si la détection n'est pas fiable
+   (on préfère garder la photo entière plutôt que couper la pochette). */
+async function cropCover(file) {
+  try {
+    const cv = await toCanvas(file, 1600);
+    const W = cv.width, H = cv.height;
+    let { x0, y0, x1, y1 } = coverBox(cv);
+    let bw = x1 - x0, bh = y1 - y0;
+
+    if (bw < W * 0.35 || bh < H * 0.35) return null;          // détection trop petite
+    if (bw > W * 0.96 && bh > H * 0.96) return null;          // rien à retirer
+
+    const m = Math.min(W, H) * 0.008;                          // petite marge
+    x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m);
+    x1 = Math.min(W, x1 + m); y1 = Math.min(H, y1 + m);
+    bw = x1 - x0; bh = y1 - y0;
+
+    let sx = x0, sy = y0, sw = bw, sh = bh;
+    const ratio = bw / bh;
+    if (ratio > 0.8 && ratio < 1.25) {                         // pochette carrée : on égalise
+      const side = Math.min(Math.max(bw, bh), W, H);
+      const cx = Math.min(Math.max((x0 + x1) / 2, side / 2), W - side / 2);
+      const cy = Math.min(Math.max((y0 + y1) / 2, side / 2), H - side / 2);
+      sx = cx - side / 2; sy = cy - side / 2; sw = sh = side;
+    }
+
+    const scale = Math.min(1, 1400 / Math.max(sw, sh));
+    const out = document.createElement('canvas');
+    out.width = Math.round(sw * scale); out.height = Math.round(sh * scale);
+    out.getContext('2d').drawImage(cv, Math.round(sx), Math.round(sy), Math.round(sw), Math.round(sh),
+      0, 0, out.width, out.height);
+    return await new Promise((res) => out.toBlob(res, 'image/jpeg', 0.9));
+  } catch { return null; }
+}
+
 /* ------------------------------------------------------------ OCR photo */
 
 const NOISE_RE = /^(stereo|mono|\d{2,3}\s?(rpm|t\/min)|all rights|tous droits|made in|printed|manufactur|distribut|executive produc|recorded at|enregistr|master(ed|ing) (by|at)|mix(ed|ing) (by|at)|remaster|artwork|design by|photograph|publish|licen|under exclusive|marketing by|total time|dur[ée]e totale|℗|©|\(p\)\s|\(c\)\s|www\.|http|[0-9]{8,})/i;
@@ -307,6 +403,7 @@ function showForm(v = null) {
           <input type="file" name="back" accept="image/*" capture="environment">
         </div>
       </div>
+      <label class="inline"><input type="checkbox" id="autocrop" checked> Recadrer automatiquement sur la pochette</label>
       <div class="actions" style="margin:0">
         <button type="button" class="btn primary" id="btn-ocr">Remplir automatiquement</button>
         <button type="button" class="btn" id="btn-online">Compléter depuis MusicBrainz</button>
@@ -324,17 +421,33 @@ function showForm(v = null) {
 
   const form = $('#f-vinyl');
   const status = $('#auto-status');
+  const shots = { front: null, back: null };   // ce qui sera réellement envoyé
 
-  form.front.onchange = (e) => preview(e.target, '#pv-front');
-  form.back.onchange  = (e) => preview(e.target, '#pv-back');
-  function preview(input, sel) {
-    const f = input.files?.[0];
-    if (f) { const img = $(sel); img.src = URL.createObjectURL(f); img.hidden = false; }
+  async function handlePhoto(kind) {
+    const file = form[kind].files?.[0];
+    const img = $(kind === 'front' ? '#pv-front' : '#pv-back');
+    if (!file) { shots[kind] = null; return; }
+    let blob = file;
+    if ($('#autocrop').checked) {
+      status.textContent = 'Recadrage de la photo…';
+      const cropped = await cropCover(file);
+      if (cropped) blob = cropped;
+      status.textContent = cropped
+        ? 'Photo recadrée sur la pochette. Décoche la case si le cadrage ne te convient pas.'
+        : 'Contour non détecté sur cette photo : elle est gardée entière.';
+    }
+    shots[kind] = blob;
+    img.src = URL.createObjectURL(blob);
+    img.hidden = false;
   }
 
+  form.front.onchange = () => handlePhoto('front');
+  form.back.onchange  = () => handlePhoto('back');
+  $('#autocrop').onchange = async () => { await handlePhoto('front'); await handlePhoto('back'); };
+
   $('#btn-ocr').onclick = async (e) => {
-    const back  = form.back.files?.[0];
-    const front = form.front.files?.[0];
+    const back  = shots.back  || form.back.files?.[0];
+    const front = shots.front || form.front.files?.[0];
     if (!back && !front) { status.textContent = "Ajoute d'abord au moins une photo."; return; }
     e.target.disabled = true;
     const done = [];
@@ -411,8 +524,10 @@ function showForm(v = null) {
       return m ? { side: m[1].toUpperCase(), title: m[2] } : { side: '', title: l };
     });
     fd.set('tracks', JSON.stringify(tracks));
-    if (!fd.get('front')?.size) fd.delete('front');
-    if (!fd.get('back')?.size)  fd.delete('back');
+    for (const kind of ['front', 'back']) {
+      fd.delete(kind);
+      if (shots[kind]?.size) fd.set(kind, shots[kind], kind + '.jpg');
+    }
     try {
       await api(v ? `/api/vinyls/${v.id}` : '/api/vinyls',
         { method: v ? 'PUT' : 'POST', body: fd });

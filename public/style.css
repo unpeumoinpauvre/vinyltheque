@@ -108,3 +108,5 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
 .res .l2{font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .res mark{background:rgba(224,96,58,.28);color:inherit;border-radius:3px;padding:0 2px}
 .res-empty{text-align:center;color:var(--dim);padding:34px 0}
+label.inline{flex-direction:row;align-items:center;gap:8px;color:var(--dim);font-size:13.5px;margin:2px 0}
+label.inline input{width:auto}
