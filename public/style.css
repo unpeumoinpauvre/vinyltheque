@@ -53,11 +53,11 @@ body.home .foot{background:#15130f}
   border-bottom:1px solid #241f18;padding:66px 20px 128px}
 /* photo de la platine, ancrée à droite */
 .hero::before{content:'';position:absolute;inset:0;
-  background:url('/hero.webp') no-repeat right 82%;background-size:auto 128%}
+  background:url('/hero.webp') no-repeat center 62%;background-size:cover}
 /* voile sombre pour que le texte reste lisible par-dessus */
 .hero::after{content:'';position:absolute;inset:0;background:
-  linear-gradient(90deg,#100e0c 0%,rgba(16,14,12,.97) 22%,rgba(16,14,12,.84) 40%,
-    rgba(16,14,12,.45) 62%,rgba(16,14,12,.08) 88%,transparent 100%),
+  linear-gradient(90deg,#100e0c 0%,rgba(16,14,12,.93) 20%,rgba(16,14,12,.78) 38%,
+    rgba(16,14,12,.40) 60%,rgba(16,14,12,.12) 84%,rgba(16,14,12,.05) 100%),
   linear-gradient(180deg,rgba(16,14,12,.30) 0%,transparent 26%,rgba(16,14,12,.45) 100%)}
 .hero-inner{position:relative;z-index:1;max-width:1180px;margin:0 auto}
 .hero-txt{max-width:min(560px,58%)}
@@ -129,7 +129,7 @@ body.home .foot{background:#15130f}
 
 @media(max-width:860px){
   .hero{padding:36px 20px 112px}
-  .hero::before{background-size:auto 100%;background-position:right bottom;opacity:.55}
+  .hero::before{background-size:cover;background-position:center 60%;opacity:.5}
   .hero::after{background:linear-gradient(180deg,rgba(16,14,12,.72) 0%,rgba(16,14,12,.86) 100%)}
   .hero-txt{max-width:none}
   .searchbar{flex-direction:column}
