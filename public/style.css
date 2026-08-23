@@ -49,18 +49,24 @@ body.home .foot{background:#15130f}
   cursor:pointer;text-decoration:underline;padding:0;align-self:flex-start}
 
 /* =============================================== page d'accueil : héros */
-.hero{background:
-    radial-gradient(1100px 460px at 72% 18%, rgba(217,169,74,.16), transparent 62%),
-    linear-gradient(180deg,#15130f 0%,#100e0c 100%);
-  border-bottom:1px solid #241f18;padding:52px 20px 120px}
-.hero-inner{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:1.02fr .98fr;
-  gap:40px;align-items:center}
+.hero{position:relative;overflow:hidden;background:#100e0c;
+  border-bottom:1px solid #241f18;padding:66px 20px 128px}
+/* photo de la platine, ancrée à droite */
+.hero::before{content:'';position:absolute;inset:0;
+  background:url('/hero.webp') no-repeat right 82%;background-size:auto 128%}
+/* voile sombre pour que le texte reste lisible par-dessus */
+.hero::after{content:'';position:absolute;inset:0;background:
+  linear-gradient(90deg,#100e0c 0%,rgba(16,14,12,.97) 22%,rgba(16,14,12,.84) 40%,
+    rgba(16,14,12,.45) 62%,rgba(16,14,12,.08) 88%,transparent 100%),
+  linear-gradient(180deg,rgba(16,14,12,.30) 0%,transparent 26%,rgba(16,14,12,.45) 100%)}
+.hero-inner{position:relative;z-index:1;max-width:1180px;margin:0 auto}
+.hero-txt{max-width:min(560px,58%)}
 .display{font-family:var(--display);font-weight:700;text-transform:uppercase;
-  font-size:clamp(46px,7.4vw,92px);line-height:.95;letter-spacing:.01em;margin:0 0 14px;color:#fff}
+  font-size:clamp(44px,7vw,86px);line-height:.95;letter-spacing:.01em;margin:0 0 14px;color:#fff;
+  text-shadow:0 3px 26px rgba(0,0,0,.55)}
 .tagline{color:var(--gold);font-size:clamp(18px,2.2vw,24px);font-weight:600;margin:0 0 18px}
-.lede{font-size:16.5px;color:#c8c2ba;margin:0 0 28px;max-width:48ch}
+.lede{font-size:16.5px;color:#d3cdc5;margin:0 0 28px;max-width:46ch}
 .cta{display:flex;gap:12px;flex-wrap:wrap}
-.hero-art svg{width:100%;height:auto;display:block;filter:drop-shadow(0 24px 40px rgba(0,0,0,.55))}
 
 /* carte de recherche à cheval sur le héros */
 .searchcard{max-width:900px;margin:-84px auto 0;position:relative;z-index:2;
@@ -122,9 +128,10 @@ body.home .foot{background:#15130f}
   box-shadow:inset 0 0 0 1px #3a3a42}
 
 @media(max-width:860px){
-  .hero{padding:34px 20px 104px}
-  .hero-inner{grid-template-columns:1fr;gap:26px}
-  .hero-art{max-width:420px}
+  .hero{padding:36px 20px 112px}
+  .hero::before{background-size:auto 100%;background-position:right bottom;opacity:.55}
+  .hero::after{background:linear-gradient(180deg,rgba(16,14,12,.72) 0%,rgba(16,14,12,.86) 100%)}
+  .hero-txt{max-width:none}
   .searchbar{flex-direction:column}
 }
 
@@ -229,3 +236,10 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
 .bar b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #view-stats .sechead{text-align:left}
 #view-stats .sechead::after{margin-left:0}
+
+@media(max-width:600px){
+  .topbar{flex-wrap:wrap;gap:12px;padding:10px 16px}
+  .brand{font-size:16px}
+  .mainnav{order:3;flex-basis:100%;gap:16px}
+  .userbox{margin-left:auto}
+}
