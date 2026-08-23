@@ -15,57 +15,101 @@ async function api(url, opts = {}) {
 
 /* ------------------------------------------------------------ OCR photo */
 
-const NOISE_RE = /^(stereo|mono|\d{2,3}\s?(rpm|t\/min)|all rights|tous droits|made in|printed|manufactur|distribut|produced|produit|executive|recorded|enregistr|master(ed|ing)|mix(ed|ing)|remaster|artwork|design|photograph|publish|licen|under exclusive|marketing|compilation|total time|dur[ée]e|℗|©|\(p\)|\(c\)|www\.|http|[0-9]{8,})/i;
+const NOISE_RE = /^(stereo|mono|\d{2,3}\s?(rpm|t\/min)|all rights|tous droits|made in|printed|manufactur|distribut|executive produc|recorded at|enregistr|master(ed|ing) (by|at)|mix(ed|ing) (by|at)|remaster|artwork|design by|photograph|publish|licen|under exclusive|marketing by|total time|dur[ée]e totale|℗|©|\(p\)\s|\(c\)\s|www\.|http|[0-9]{8,})/i;
 
-const SIDE_RE = /^(?:face|side|c[oô]t[ée])\s*([A-D1-4])\b/i;
+const SIDE_RE   = /^(?:face|side|c[oô]t[ée])\s*[:.\-]?\s*([A-D1-4])\b/i;
+const LABEL_RE  = /\b(records?|recordings?|music|musik|entertainment|editions?|productions?)\b/i;
+const SEQ = 'ABCDEFGH';
 
-/* Rejette le bruit d'OCR : lignes trop courtes, pleines de symboles,
-   ou faites de fragments d'une lettre (« A A 0 HFA »). */
-function looksLikeTitle(t) {
-  if (t.length < 4 || t.length > 90) return false;
+function stripEdges(t) {
+  return t.replace(/^[^0-9A-Za-zÀ-ÿ(«"]+/, '').replace(/[\s.,;:'"«»\-–_\[\]{}|]+$/, '').trim();
+}
+
+/* Rejette le bruit d'OCR sans être trop gourmand : on ne compte comme
+   « fragment » que les morceaux d'une seule lettre ou chiffre, pas la
+   ponctuation (&, -, /) qui est normale dans un titre. */
+function looksLikeTitle(t, raw = t) {
+  if (NOISE_RE.test(raw)) return false;                 // mention légale avant nettoyage
+  if (LABEL_RE.test(t) && /\b(19|20)\d{2}\b/.test(t)) return false;  // « ℗ 2013 X Records »
+  if (t.length < 3 || t.length > 110) return false;
   const letters = (t.match(/[a-zA-ZÀ-ÿ]/g) || []).length;
-  if (letters < 4 || letters / t.length < 0.55) return false;
-  const words = t.split(/\s+/);
+  if (letters < 3 || letters / t.length < 0.5) return false;
+  const words = t.split(/\s+/).filter((w) => /[a-zA-ZÀ-ÿ0-9]/.test(w));
   const tiny = words.filter((w) => w.replace(/[^a-zA-ZÀ-ÿ0-9]/g, '').length <= 1).length;
-  if (words.length >= 3 && tiny / words.length > 0.34) return false;
+  if (words.length >= 4 && tiny / words.length > 0.4) return false;
   if (/^[IVX]+$/i.test(t)) return false;
   return !NOISE_RE.test(t);
 }
 
-function parseTracks(lines, minConf = 62) {
+function parseTracks(lines, minConf = 50) {
   const out = [];
   const counts = {};
-  let side = '', started = false;
+  const used = new Set();
+  let side = '';
+
+  /* Une pochette double réutilise « SIDE A / SIDE B » sur le second
+     disque : on décale alors vers la lettre libre suivante (A B puis C D). */
+  const takeSide = (letter) => {
+    let i = SEQ.indexOf(letter);
+    if (i < 0) return letter;
+    while (i < SEQ.length && used.has(SEQ[i])) i++;
+    const L = SEQ[i] || letter;
+    used.add(L);
+    return L;
+  };
 
   for (const raw of lines) {
     if ((raw.conf ?? 100) < minConf) continue;
-    let line = String(raw.text).replace(/[|_•·¤~^"“”]/g, ' ').replace(/\s+/g, ' ').trim();
+    const rawLine = String(raw.text).replace(/[|_•·¤~^“”]/g, ' ').replace(/\s+/g, ' ').trim();
+    let line = stripEdges(rawLine);
     if (!line) continue;
 
     const sh = line.match(SIDE_RE);
-    if (sh) { side = sh[1].toUpperCase(); started = true; continue; }
-    if (/^[A-D]$/.test(line)) { side = line; started = true; continue; }
+    if (sh) { side = takeSide(sh[1].toUpperCase()); continue; }
+    if (/^[A-D]$/.test(line)) { side = takeSide(line); continue; }
 
     let num = '';
     const m = line.match(/^([A-D]?\s?\d{1,2})\s*[.\)\-–:]\s+(.*)$/);
-    if (m) { num = m[1].replace(/\s/g, '').toUpperCase(); line = m[2]; started = true; }
+    if (m) { num = m[1].replace(/\s/g, '').toUpperCase(); line = m[2]; }
 
-    line = line
+    line = stripEdges(line
       .replace(/\(?\b\d{1,2}[:.'’]\d{2}\b\)?\s*$/, '')   // durée en fin de ligne
-      .replace(/[\s.\-–_:]+$/, '')
-      .trim();
+    );
 
-    if (!started || !looksLikeTitle(line)) continue;
+    if (!looksLikeTitle(line, rawLine)) continue;
     if (out.some((o) => o.title.toLowerCase() === line.toLowerCase())) continue;
 
     const key = side || '_';
     counts[key] = (counts[key] || 0) + 1;
-    const label = /^[A-D]\d/.test(num) ? num
-      : side ? side + (num.replace(/\D/g, '') || counts[key])
-      : num;
-    out.push({ side: label, title: line });
+    out.push({
+      side: /^[A-D]\d/.test(num) ? num
+        : side ? side + (num.replace(/\D/g, '') || counts[key])
+        : num,
+      title: line
+    });
   }
-  return out.slice(0, 40);
+  return out.slice(0, 60);
+}
+
+/* Titre de l'album = le texte le plus grand de la pochette recto. */
+function guessTitle(lines) {
+  const cands = lines
+    .map((l) => ({ ...l, text: stripEdges(String(l.text).replace(/\s+/g, ' ')) }))
+    .filter((l) => (l.conf ?? 0) >= 45 && l.text.length >= 2 && l.text.length <= 60
+      && /[a-zA-ZÀ-ÿ]{2}/.test(l.text) && !NOISE_RE.test(l.text))
+    .sort((a, b) => (b.h || 0) - (a.h || 0));
+  return cands[0]?.text || '';
+}
+
+const guessYear = (lines) => (lines.map((l) => l.text).join(' ').match(/\b(19|20)\d{2}\b/) || [''])[0];
+
+function guessLabel(lines) {
+  const hit = lines.find((l) => (l.conf ?? 0) >= 55 && LABEL_RE.test(l.text) && l.text.length <= 45);
+  if (!hit) return '';
+  return stripEdges(String(hit.text).replace(/\s+/g, ' ')
+    .replace(/^(?:[℗©]|\((?:p|c)\)|\s)+/i, '')      // « ℗ », « (P) »
+    .replace(/^(?:19|20)\d{2}\s*/, '')              // année en tête
+    .replace(/\s*(?:19|20)\d{2}$/, ''));            // année en fin
 }
 
 /* Met la photo en niveaux de gris, étire le contraste, agrandit,
@@ -104,7 +148,8 @@ async function prepare(file) {
   return cv;
 }
 
-async function ocrLines(source, onProgress) {
+async function ocrLines(file, onProgress) {
+  const source = await prepare(file);
   const worker = await Tesseract.createWorker(['fra', 'eng'], 1, {
     logger: (m) => m.status === 'recognizing text' && onProgress(Math.round(m.progress * 100))
   });
@@ -113,8 +158,12 @@ async function ocrLines(source, onProgress) {
     const { data } = await worker.recognize(source, {}, { text: true, blocks: true });
     const lines = [];
     (data.blocks || []).forEach((b) => (b.paragraphs || []).forEach((p) => (p.lines || []).forEach((l) =>
-      lines.push({ text: l.text, conf: l.confidence ?? 100 }))));
-    if (!lines.length) (data.text || '').split('\n').forEach((t) => lines.push({ text: t, conf: 100 }));
+      lines.push({
+        text: l.text,
+        conf: l.confidence ?? 100,
+        h: l.bbox ? l.bbox.y1 - l.bbox.y0 : 0
+      }))));
+    if (!lines.length) (data.text || '').split('\n').forEach((t) => lines.push({ text: t, conf: 100, h: 0 }));
     return lines;
   } finally { await worker.terminate(); }
 }
@@ -208,6 +257,31 @@ function showDetail(v) {
 
 /* ----------------------------------------------------- formulaire vinyle */
 
+/* Complète les champs depuis MusicBrainz.
+   onlyEmpty : ne touche pas à ce qui est déjà renseigné.
+   keepTracks : garde la liste lue sur la photo si elle est déjà fournie. */
+async function completeOnline(form, { onlyEmpty = true, keepTracks = false } = {}) {
+  const q = new URLSearchParams({ title: form.title.value, artist: form.artist.value });
+  const d = await api('/api/lookup?' + q);
+  if (!d.found) return [];
+  const filled = [];
+  const set = (field, value, label) => {
+    if (!value) return;
+    if (onlyEmpty && form[field].value.trim()) return;
+    form[field].value = value;
+    filled.push(label);
+  };
+  set('artist', d.artist, 'artiste');
+  set('year', d.year, 'année');
+  set('label', d.label, 'label');
+  const current = form.tracks.value.split('\n').filter((l) => l.trim()).length;
+  if (d.tracks?.length && (!keepTracks || current < d.tracks.length - 2)) {
+    form.tracks.value = d.tracks.map((x) => `${x.side}. ${x.title}`).join('\n');
+    filled.push(`${d.tracks.length} titres (en ligne)`);
+  }
+  return filled;
+}
+
 function showForm(v = null) {
   const t = (v?.tracks || []).map((x) => `${x.side ? x.side + '. ' : ''}${x.title}`).join('\n');
   openModal(`
@@ -234,10 +308,10 @@ function showForm(v = null) {
         </div>
       </div>
       <div class="actions" style="margin:0">
-        <button type="button" class="btn" id="btn-ocr">Lire les titres sur la photo</button>
+        <button type="button" class="btn primary" id="btn-ocr">Remplir automatiquement</button>
         <button type="button" class="btn" id="btn-online">Compléter depuis MusicBrainz</button>
       </div>
-      <p class="hint" id="auto-status">La lecture se fait sur la photo du verso (ou du recto si le verso est absent).</p>
+      <p class="hint" id="auto-status">Lit les deux photos (titres, nom, année, label) puis complète ce qui manque via MusicBrainz.</p>
       <label>Titres <small>(un par ligne — « A1. Titre » ou juste le titre)</small>
         <textarea name="tracks">${esc(t)}</textarea></label>
       <label>Notes<textarea name="notes" style="min-height:60px">${esc(v?.notes)}</textarea></label>
@@ -259,41 +333,70 @@ function showForm(v = null) {
   }
 
   $('#btn-ocr').onclick = async (e) => {
-    const file = form.back.files?.[0] || form.front.files?.[0];
-    if (!file) { status.textContent = "Choisis d'abord une photo (de préférence le verso)."; return; }
+    const back  = form.back.files?.[0];
+    const front = form.front.files?.[0];
+    if (!back && !front) { status.textContent = "Ajoute d'abord au moins une photo."; return; }
     e.target.disabled = true;
-    status.textContent = 'Préparation de la photo…';
+    const done = [];
     try {
-      const canvas = await prepare(file);
-      status.textContent = 'Lecture de la photo… 0 %';
-      const lines = await ocrLines(canvas, (p) => status.textContent = `Lecture de la photo… ${p} %`);
-      let tracks = parseTracks(lines, 62);
-      if (!tracks.length) tracks = parseTracks(lines, 0);
-      if (tracks.length) {
-        form.tracks.value = tracks.map((x) => `${x.side ? x.side + '. ' : ''}${x.title}`).join('\n');
-        status.innerHTML = `<span class="ok">${tracks.length} titres détectés.</span> Relis la liste : sur une pochette sombre ou très décorée l'OCR se trompe — supprime les lignes en trop, ou essaie « Compléter depuis MusicBrainz ».`;
-      } else {
-        status.textContent = "Rien de lisible sur cette photo. Essaie « Compléter depuis MusicBrainz », ou reprends la photo bien cadrée sur la liste des titres.";
+      /* 1. verso → liste des titres */
+      let backLines = [];
+      if (back || front) {
+        const src = back || front;
+        status.textContent = 'Lecture de la liste des titres… 0 %';
+        backLines = await ocrLines(src, (p) => status.textContent = `Lecture de la liste des titres… ${p} %`);
+        let tracks = parseTracks(backLines, 50);
+        if (tracks.length < 4) tracks = parseTracks(backLines, 25);
+        if (tracks.length) {
+          form.tracks.value = tracks.map((x) => `${x.side ? x.side + '. ' : ''}${x.title}`).join('\n');
+          done.push(`${tracks.length} titres`);
+        }
       }
+
+      /* 2. recto → nom de l'album, si le champ est vide */
+      let frontLines = [];
+      if (front && back && !form.title.value.trim()) {
+        status.textContent = 'Lecture de la pochette… 0 %';
+        frontLines = await ocrLines(front, (p) => status.textContent = `Lecture de la pochette… ${p} %`);
+        const t = guessTitle(frontLines);
+        if (t) { form.title.value = t; done.push('nom'); }
+      }
+
+      /* 3. année et label repérés sur les photos */
+      const all = backLines.concat(frontLines);
+      if (!form.year.value.trim()) {
+        const y = guessYear(all);
+        if (y) { form.year.value = y; done.push('année'); }
+      }
+      if (!form.label.value.trim()) {
+        const l = guessLabel(all);
+        if (l) { form.label.value = l; done.push('label'); }
+      }
+
+      /* 4. MusicBrainz complète ce qui manque encore */
+      if (form.title.value.trim()) {
+        status.textContent = 'Recherche en ligne pour compléter…';
+        const filled = await completeOnline(form, { onlyEmpty: true, keepTracks: true });
+        if (filled.length) done.push(...filled);
+      }
+
+      status.innerHTML = done.length
+        ? `<span class="ok">Rempli : ${done.join(', ')}.</span> Vérifie et corrige avant d'enregistrer.`
+        : "Rien de lisible sur ces photos. Renseigne le nom du vinyle et utilise « Compléter depuis MusicBrainz ».";
     } catch (err) {
       status.textContent = 'Échec de la lecture : ' + err.message;
     } finally { e.target.disabled = false; }
   };
 
   $('#btn-online').onclick = async (e) => {
-    if (!form.title.value.trim()) { status.textContent = 'Renseigne d\'abord le nom du vinyle.'; return; }
+    if (!form.title.value.trim()) { status.textContent = "Renseigne d'abord le nom du vinyle."; return; }
     e.target.disabled = true;
     status.textContent = 'Recherche en ligne…';
     try {
-      const q = new URLSearchParams({ title: form.title.value, artist: form.artist.value });
-      const d = await api('/api/lookup?' + q);
-      if (!d.found) { status.textContent = 'Album introuvable en ligne — utilise la lecture de photo.'; return; }
-      if (!form.artist.value) form.artist.value = d.artist || '';
-      if (!form.year.value)   form.year.value   = d.year || '';
-      if (!form.label.value)  form.label.value  = d.label || '';
-      if (d.tracks?.length)
-        form.tracks.value = d.tracks.map((x) => `${x.side}. ${x.title}`).join('\n');
-      status.innerHTML = `<span class="ok">Trouvé : ${esc(d.artist)} — ${esc(d.title)} (${d.tracks.length} titres).</span>`;
+      const filled = await completeOnline(form, { onlyEmpty: false, keepTracks: false });
+      status.innerHTML = filled.length
+        ? `<span class="ok">Trouvé en ligne — rempli : ${filled.join(', ')}.</span>`
+        : "Album introuvable en ligne — utilise la lecture des photos.";
     } catch (err) { status.textContent = 'Recherche indisponible : ' + err.message; }
     finally { e.target.disabled = false; }
   };
