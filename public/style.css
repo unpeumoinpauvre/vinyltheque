@@ -90,3 +90,21 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
 .chips span{background:#232329;border-radius:999px;padding:3px 11px}
 .foot{text-align:center;color:#5e5b65;font-size:12.5px;padding:26px 16px 40px}
 @media(max-width:560px){.row,.photos,.detail-photos{grid-template-columns:1fr}.tracklist{columns:1}}
+
+/* --- vue recherche --- */
+.search-hero{max-width:720px;margin:10px auto 26px;text-align:center}
+.search-hero h2{margin:0 0 6px;font-size:26px}
+.search-hero .hint{margin:0 0 16px}
+.search-hero input{font-size:17px;padding:13px 16px}
+.res-group{margin:0 auto 26px;max-width:820px}
+.res-group h3{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
+  margin:0 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.res{display:flex;gap:13px;align-items:center;padding:9px 10px;border-radius:10px;cursor:pointer}
+.res:hover{background:var(--card)}
+.res .thumb{width:46px;height:46px;border-radius:7px;flex:0 0 auto;
+  background:#101014 center/cover no-repeat;display:grid;place-items:center;color:#4b4a52;font-size:17px}
+.res .txt{min-width:0}
+.res .l1{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res .l2{font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res mark{background:rgba(224,96,58,.28);color:inherit;border-radius:3px;padding:0 2px}
+.res-empty{text-align:center;color:var(--dim);padding:34px 0}

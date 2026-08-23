@@ -126,9 +126,11 @@ function renderUserbox() {
   if (state.me) {
     box.innerHTML = `<span>Connecté : <strong>${esc(state.me.username)}</strong></span>
       <a href="/collection" id="nav-mine">Ma collection</a>
+      <a href="/recherche" id="nav-search">Recherche</a>
       <button class="btn ghost" id="btn-logout">Déconnexion</button>`;
     $('#btn-logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.href = '/'; };
     $('#nav-mine').onclick = (e) => { e.preventDefault(); go('/collection'); };
+    $('#nav-search').onclick = (e) => { e.preventDefault(); go('/recherche'); };
   } else {
     box.innerHTML = `<a href="/login" id="nav-login">Connexion</a>`;
     $('#nav-login').onclick = (e) => { e.preventDefault(); go('/login'); };
@@ -316,6 +318,73 @@ function showForm(v = null) {
   };
 }
 
+/* ------------------------------------------------------------ recherche */
+
+const norm = (s) => String(s ?? '').toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+function highlight(text, q) {
+  const t = String(text ?? '');
+  const i = norm(t).indexOf(norm(q));
+  if (!q || i < 0) return esc(t);
+  return esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length));
+}
+
+function thumb(v) {
+  return v.has_front
+    ? `<div class="thumb" style="background-image:url('/api/vinyls/${v.id}/image/front')"></div>`
+    : `<div class="thumb">♪</div>`;
+}
+
+function searchCollection(q) {
+  const n = norm(q);
+  const albums = state.vinyls.filter((v) =>
+    [v.title, v.artist, v.label, v.year].some((f) => norm(f).includes(n)));
+  const tracks = [];
+  for (const v of state.vinyls)
+    for (const t of v.tracks || [])
+      if (norm(t.title).includes(n)) tracks.push({ v, t });
+  return { albums, tracks };
+}
+
+function renderSearch() {
+  const q = $('#q').value.trim();
+  const box = $('#search-results');
+  if (q.length < 2) {
+    box.innerHTML = `<p class="res-empty">${state.vinyls.length} disque(s) dans ta collection. Tape au moins 2 lettres.</p>`;
+    return;
+  }
+  const { albums, tracks } = searchCollection(q);
+  if (!albums.length && !tracks.length) {
+    box.innerHTML = `<p class="res-empty">Rien trouvé pour « ${esc(q)} » — tu ne l'as pas encore.</p>`;
+    return;
+  }
+  let html = '';
+  if (albums.length) {
+    html += `<div class="res-group"><h3>Albums (${albums.length})</h3>` + albums.map((v) => `
+      <div class="res" data-id="${v.id}">${thumb(v)}
+        <div class="txt">
+          <div class="l1">${highlight(v.title, q)}</div>
+          <div class="l2">${highlight(v.artist || '—', q)}${
+            [v.year, v.label].filter(Boolean).length ? ' · ' + [v.year, v.label].filter(Boolean).map(esc).join(' · ') : ''}</div>
+        </div>
+      </div>`).join('') + `</div>`;
+  }
+  if (tracks.length) {
+    html += `<div class="res-group"><h3>Morceaux (${tracks.length})</h3>` + tracks.map(({ v, t }) => `
+      <div class="res" data-id="${v.id}">${thumb(v)}
+        <div class="txt">
+          <div class="l1">${highlight(t.title, q)}</div>
+          <div class="l2">sur <strong>${esc(v.title)}</strong>${v.artist ? ' — ' + esc(v.artist) : ''}${
+            t.side ? ' · face ' + esc(t.side) : ''}</div>
+        </div>
+      </div>`).join('') + `</div>`;
+  }
+  box.innerHTML = html;
+  $$('#search-results .res').forEach((el) =>
+    el.onclick = () => showDetail(state.vinyls.find((v) => v.id === +el.dataset.id)));
+}
+
 /* ----------------------------------------------------------- navigation */
 
 function show(view) { $$('.view').forEach((v) => v.classList.add('hidden')); $(view).classList.remove('hidden'); }
@@ -360,8 +429,17 @@ async function route() {
     catch (e) { $('#grid').innerHTML = ''; $('#empty').textContent = e.message; $('#empty').classList.remove('hidden'); }
     return;
   }
-  if (state.me) { show('#view-collection'); $('#btn-add').classList.remove('hidden'); await loadMine(); }
-  else { show('#view-auth'); }
+  if (!state.me) { show('#view-auth'); return; }
+  if (p === '/recherche') {
+    if (!state.vinyls.length || state.publicUser) await loadMine();
+    show('#view-search');
+    renderSearch();
+    $('#q').focus();
+    return;
+  }
+  show('#view-collection');
+  $('#btn-add').classList.remove('hidden');
+  await loadMine();
 }
 
 function go(path) { history.pushState({}, '', path); route(); }
@@ -391,6 +469,7 @@ for (const [id, url] of [['#form-login', '/api/login'], ['#form-register', '/api
 
 $('#btn-add').onclick = () => showForm();
 $('#search').oninput = (e) => { state.filter = e.target.value; renderGrid(); };
+$('#q').oninput = renderSearch;
 $('.brand').onclick = (e) => { e.preventDefault(); go('/'); };
 
 (async () => {
