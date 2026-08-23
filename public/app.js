@@ -16,7 +16,9 @@ async function api(url, opts = {}) {
 /* -------------------------------------------------- recadrage automatique */
 
 async function toCanvas(file, max = 1600) {
-  const bmp = await createImageBitmap(file);
+  // imageOrientation : on applique la rotation EXIF maintenant, sinon la photo
+  // se retrouverait couchée une fois les métadonnées retirées.
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
   const sc = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const w = Math.round(bmp.width * sc), h = Math.round(bmp.height * sc);
   const cv = document.createElement('canvas');
@@ -72,6 +74,13 @@ function coverBox(cv) {
   const [y0, y1] = span(rows, h), [x0, x1] = span(cols, w);
   const k = 1 / sc;
   return { x0: x0 * k, y0: y0 * k, x1: (x1 + 1) * k, y1: (y1 + 1) * k };
+}
+
+/* Ré-encode la photo via un canvas : le JPEG produit ne contient aucune
+   métadonnée (EXIF/GPS/appareil/date, IPTC, XMP, vignette). */
+async function reencode(file, max = 1600) {
+  const cv = await toCanvas(file, max);
+  return await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.9));
 }
 
 /* Renvoie un JPEG recadré, ou null si la détection n'est pas fiable
@@ -266,20 +275,45 @@ async function ocrLines(file, onProgress) {
 
 /* ------------------------------------------------------------- rendu UI */
 
+function renderNav() {
+  const p = location.pathname;
+  const items = state.me
+    ? [['/collection', 'Ma collection'], ['/recherche', 'Recherche'], ['/statistiques', 'Statistiques']]
+    : [['/', 'Accueil']];
+  $('#mainnav').innerHTML = items
+    .map(([href, label]) => `<a href="${href}" class="${p === href ? 'on' : ''}">${label}</a>`).join('');
+  $$('#mainnav a').forEach((a) => a.onclick = (e) => { e.preventDefault(); go(a.getAttribute('href')); });
+}
+
 function renderUserbox() {
   const box = $('#userbox');
   if (state.me) {
-    box.innerHTML = `<span>Connecté : <strong>${esc(state.me.username)}</strong></span>
-      <a href="/collection" id="nav-mine">Ma collection</a>
-      <a href="/recherche" id="nav-search">Recherche</a>
+    box.innerHTML = `<span>${esc(state.me.username)}</span>
       <button class="btn ghost" id="btn-logout">Déconnexion</button>`;
     $('#btn-logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); location.href = '/'; };
-    $('#nav-mine').onclick = (e) => { e.preventDefault(); go('/collection'); };
-    $('#nav-search').onclick = (e) => { e.preventDefault(); go('/recherche'); };
   } else {
-    box.innerHTML = `<a href="/login" id="nav-login">Connexion</a>`;
-    $('#nav-login').onclick = (e) => { e.preventDefault(); go('/login'); };
+    box.innerHTML = `<button class="btn gold" id="nav-login">Se connecter</button>`;
+    $('#nav-login').onclick = () => openAuth('login');
   }
+  renderNav();
+}
+
+/* ------------------------------------------------------- page d'accueil */
+
+async function loadRecent() {
+  const box = $('#home-recent');
+  if (box.dataset.done) return;
+  try {
+    const { vinyls } = await api('/api/recent');
+    box.dataset.done = '1';
+    box.innerHTML = vinyls.length
+      ? vinyls.map((v) => `<div class="rec">
+          <div class="cov" style="background-image:url('/api/vinyls/${v.id}/image/front')"></div>
+          <div class="m"><div class="t">${esc(v.title)}</div>
+            <div class="s">${esc(v.artist) || '—'}${v.year ? ' · ' + esc(v.year) : ''}</div></div>
+        </div>`).join('')
+      : `<p class="none">Aucune collection publique pour l'instant — la vôtre pourrait être la première.</p>`;
+  } catch { box.innerHTML = ''; }
 }
 
 function vinylCard(v) {
@@ -427,15 +461,14 @@ function showForm(v = null) {
     const file = form[kind].files?.[0];
     const img = $(kind === 'front' ? '#pv-front' : '#pv-back');
     if (!file) { shots[kind] = null; return; }
-    let blob = file;
-    if ($('#autocrop').checked) {
-      status.textContent = 'Recadrage de la photo…';
-      const cropped = await cropCover(file);
-      if (cropped) blob = cropped;
-      status.textContent = cropped
-        ? 'Photo recadrée sur la pochette. Décoche la case si le cadrage ne te convient pas.'
-        : 'Contour non détecté sur cette photo : elle est gardée entière.';
-    }
+    status.textContent = 'Préparation de la photo…';
+    let blob = $('#autocrop').checked ? await cropCover(file) : null;
+    const cropped = !!blob;
+    if (!blob) blob = await reencode(file);   // même sans recadrage : métadonnées retirées
+    status.textContent = (cropped
+      ? 'Photo recadrée sur la pochette'
+      : 'Contour non détecté : photo gardée entière')
+      + ' — métadonnées (lieu, appareil, date) supprimées.';
     shots[kind] = blob;
     img.src = URL.createObjectURL(blob);
     img.hidden = false;
@@ -603,9 +636,65 @@ function renderSearch() {
     el.onclick = () => showDetail(state.vinyls.find((v) => v.id === +el.dataset.id)));
 }
 
+/* --------------------------------------------------------- statistiques */
+
+function barList(rows, key) {
+  if (!rows.length) return '<p class="hint">Pas encore de donnée.</p>';
+  const max = Math.max(...rows.map((r) => r.n));
+  return rows.map((r) => `<div class="bar">
+    <b>${esc(r[key] || '—')}</b><i style="width:${Math.round((r.n / max) * 100)}%"></i><em>${r.n}</em>
+  </div>`).join('');
+}
+
+async function loadStats() {
+  const box = $('#stats-body');
+  box.innerHTML = '<p class="hint">Calcul…</p>';
+  const d = await api('/api/stats');
+  const moyenne = d.total.disques ? (d.total.titres / d.total.disques).toFixed(1) : '0';
+  box.innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><b>${d.total.disques}</b><span>disques</span></div>
+      <div class="kpi"><b>${d.total.titres}</b><span>titres enregistrés</span></div>
+      <div class="kpi"><b>${moyenne}</b><span>titres par disque</span></div>
+      <div class="kpi"><b>${d.artistes.length ? d.artistes[0].n : 0}</b>
+        <span>disques du plus représenté${d.artistes.length ? ' : ' + esc(d.artistes[0].artist) : ''}</span></div>
+    </div>
+    <div class="statgrid">
+      <div class="statbox"><h3>Par décennie</h3>${barList(d.decennies, 'decennie')}</div>
+      <div class="statbox"><h3>Artistes les plus présents</h3>${barList(d.artistes, 'artist')}</div>
+      <div class="statbox"><h3>Labels les plus présents</h3>${barList(d.labels, 'label')}</div>
+    </div>`;
+}
+
 /* ----------------------------------------------------------- navigation */
 
-function show(view) { $$('.view').forEach((v) => v.classList.add('hidden')); $(view).classList.remove('hidden'); }
+async function openAuth(tab) {
+  await go('/login');
+  const t = $$('.tab').find((x) => x.dataset.tab === tab);
+  if (t) t.click();
+}
+
+function show(view) {
+  $$('.view').forEach((v) => v.classList.add('hidden'));
+  $(view).classList.remove('hidden');
+  document.body.classList.toggle('home', view === '#view-home');
+}
+
+function renderVerifyBanner() {
+  const line = $('#verify-line');
+  if (!state.me || state.me.email_verified) { line.classList.add('hidden'); return; }
+  line.classList.remove('hidden');
+  line.innerHTML = `Adresse e-mail non confirmée — sans elle, impossible de récupérer ton mot de passe.
+    <button class="linky" id="resend">Renvoyer l'e-mail</button>`;
+  $('#resend').onclick = async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = 'Envoi…';
+    try {
+      await api('/api/verify/resend', { method: 'POST' });
+      line.innerHTML = 'E-mail envoyé. Regarde ta boîte de réception (et les indésirables).';
+    } catch (err) { line.innerHTML = 'Envoi impossible : ' + esc(err.message); }
+  };
+}
 
 async function loadMine() {
   const d = await api('/api/vinyls');
@@ -626,6 +715,7 @@ async function loadMine() {
     });
     state.me.is_public = r.is_public;
   };
+  renderVerifyBanner();
   renderGrid();
 }
 
@@ -640,6 +730,7 @@ async function loadPublic(username) {
 
 async function route() {
   const p = location.pathname;
+  renderNav();
   const m = p.match(/^\/u\/([^/]+)$/);
   if (m) {
     show('#view-collection');
@@ -647,7 +738,30 @@ async function route() {
     catch (e) { $('#grid').innerHTML = ''; $('#empty').textContent = e.message; $('#empty').classList.remove('hidden'); }
     return;
   }
-  if (!state.me) { show('#view-auth'); return; }
+  if (p === '/verifier') {
+    const token = new URLSearchParams(location.search).get('token');
+    try {
+      const d = await api('/api/verify?token=' + encodeURIComponent(token || ''));
+      state.me = d.user; renderUserbox();
+      await go('/collection');
+      flash('Adresse confirmée, merci !');
+    } catch (e) {
+      show('#view-auth');
+      $('#auth-error').textContent = e.message;
+    }
+    return;
+  }
+  if (p === '/motdepasse') { show('#view-reset'); return; }
+
+  if (!state.me) {
+    if (p === '/login') { show('#view-auth'); return; }
+    show('#view-home'); loadRecent(); return;
+  }
+  if (p === '/statistiques') {
+    show('#view-stats');
+    try { await loadStats(); } catch (e) { $('#stats-body').innerHTML = esc(e.message); }
+    return;
+  }
   if (p === '/recherche') {
     if (!state.vinyls.length || state.publicUser) await loadMine();
     show('#view-search');
@@ -660,7 +774,15 @@ async function route() {
   await loadMine();
 }
 
-function go(path) { history.pushState({}, '', path); route(); }
+function flash(msg) {
+  const line = $('#verify-line');
+  line.classList.remove('hidden');
+  line.style.color = 'var(--ok)';
+  line.textContent = msg;
+  setTimeout(() => { line.style.color = ''; renderVerifyBanner(); }, 6000);
+}
+
+async function go(path) { history.pushState({}, '', path); await route(); }
 window.addEventListener('popstate', route);
 
 /* ------------------------------------------------------------ démarrage */
@@ -685,7 +807,66 @@ for (const [id, url] of [['#form-login', '/api/login'], ['#form-register', '/api
   };
 }
 
+$$('[data-go]').forEach((b) => b.onclick = () => openAuth(b.dataset.go));
+$$('[data-scroll]').forEach((b) => b.onclick = () =>
+  $(b.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+
+$('#home-search').onsubmit = async (e) => {
+  e.preventDefault();
+  const q = e.target.q.value.trim();
+  if (!state.me) {
+    await openAuth('register');
+    $('#auth-error').innerHTML = q
+      ? `<span class="ok">Créez votre compte, puis « ${esc(q)} » sera cherché dans votre collection.</span>`
+      : '<span class="ok">Créez votre compte pour commencer votre collection.</span>';
+    return;
+  }
+  await go('/recherche');
+  $('#q').value = q;
+  renderSearch();
+};
 $('#btn-add').onclick = () => showForm();
+$('#show-forgot').onclick = () => {
+  $('#form-login').classList.add('hidden');
+  $('#form-forgot').classList.remove('hidden');
+  $('#auth-error').textContent = '';
+};
+$('#back-login').onclick = () => {
+  $('#form-forgot').classList.add('hidden');
+  $('#form-login').classList.remove('hidden');
+  $('#auth-error').textContent = '';
+};
+$('#form-forgot').onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    await api('/api/forgot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: e.target.email.value })
+    });
+    $('#auth-error').innerHTML = '<span class="ok">Si un compte existe avec cette adresse, ' +
+      'le lien vient de partir. Il est valable une heure.</span>';
+  } catch (err) { $('#auth-error').textContent = err.message; }
+  finally { btn.disabled = false; }
+};
+
+$('#form-reset').onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    const d = await api('/api/reset', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: new URLSearchParams(location.search).get('token'),
+        password: e.target.password.value
+      })
+    });
+    state.me = d.user; renderUserbox(); go('/collection');
+  } catch (err) { $('#reset-msg').textContent = err.message; btn.disabled = false; }
+};
+
 $('#search').oninput = (e) => { state.filter = e.target.value; renderGrid(); };
 $('#q').oninput = renderSearch;
 $('.brand').onclick = (e) => { e.preventDefault(); go('/'); };

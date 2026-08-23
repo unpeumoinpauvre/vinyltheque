@@ -3,25 +3,144 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vinylthèque — ma collection de vinyles</title>
-<meta name="description" content="Catalogue ta collection de vinyles : deux photos par disque et les titres remplis automatiquement.">
+<title>Vinylthèque — votre collection de vinyles</title>
+<meta name="description" content="Organisez, explorez et partagez votre bibliothèque de vinyles. Deux photos par disque et les titres remplis automatiquement.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23151517'/><circle cx='16' cy='16' r='9' fill='none' stroke='%23444' /><circle cx='16' cy='16' r='4' fill='%23e0603a'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23151517'/><circle cx='16' cy='16' r='9' fill='none' stroke='%23555'/><circle cx='16' cy='16' r='4' fill='%23d9a94a'/></svg>">
 </head>
 <body>
 <header class="topbar">
   <a class="brand" href="/"><span class="disc"></span> Vinylthèque</a>
-  <div class="spacer"></div>
+  <nav id="mainnav" class="mainnav"></nav>
   <div id="userbox" class="userbox"></div>
 </header>
 
 <main id="app">
-  <!-- vue accueil / connexion -->
-  <section id="view-auth" class="view hidden">
+
+  <!-- ============================================ page d'accueil publique -->
+  <section id="view-home" class="view hidden">
     <div class="hero">
-      <h1>Ta collection de vinyles, enfin rangée.</h1>
-      <p>Deux photos par disque, les titres remplis tout seuls, et une page publique à partager.</p>
+      <div class="hero-inner">
+        <div class="hero-txt">
+          <h1 class="display">Vinylthèque</h1>
+          <p class="tagline">Votre collection. Votre passion.</p>
+          <p class="lede">Organisez, explorez et partagez votre bibliothèque de vinyles.
+            Ajoutez vos disques d'après deux photos : les titres, l'artiste, l'année et le label
+            se remplissent tout seuls.</p>
+          <div class="cta">
+            <button class="btn gold big" data-go="register">Commencer ma collection</button>
+            <button class="btn outline big" data-scroll="#home-feats">Découvrir Vinylthèque</button>
+          </div>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <svg viewBox="0 0 420 340" role="img">
+            <defs>
+              <radialGradient id="glow" cx="50%" cy="38%" r="62%">
+                <stop offset="0%" stop-color="#5a4326"/><stop offset="100%" stop-color="#15120f" stop-opacity="0"/>
+              </radialGradient>
+              <linearGradient id="wood" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#3a2a1d"/><stop offset="100%" stop-color="#20150e"/>
+              </linearGradient>
+              <radialGradient id="platter" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#2c2c30"/><stop offset="100%" stop-color="#121215"/>
+              </radialGradient>
+            </defs>
+            <rect width="420" height="340" fill="url(#glow)"/>
+            <!-- meuble -->
+            <rect x="20" y="228" width="380" height="96" rx="10" fill="url(#wood)"/>
+            <!-- platine -->
+            <rect x="52" y="150" width="316" height="96" rx="12" fill="#1b1b1f" stroke="#33333a"/>
+            <!-- disque -->
+            <circle cx="188" cy="196" r="78" fill="url(#platter)"/>
+            <g stroke="#3b3b43" fill="none" opacity=".85">
+              <circle cx="188" cy="196" r="70"/><circle cx="188" cy="196" r="62"/>
+              <circle cx="188" cy="196" r="54"/><circle cx="188" cy="196" r="46"/>
+              <circle cx="188" cy="196" r="38"/>
+            </g>
+            <circle cx="188" cy="196" r="27" fill="#d9a94a"/>
+            <circle cx="188" cy="196" r="26" fill="none" stroke="#b98c31"/>
+            <circle cx="188" cy="196" r="3.5" fill="#15120f"/>
+            <!-- bras de lecture -->
+            <circle cx="336" cy="176" r="13" fill="#26262c" stroke="#3d3d45"/>
+            <path d="M336 176 L262 214" stroke="#8f8f9a" stroke-width="5" stroke-linecap="round"/>
+            <rect x="250" y="208" width="20" height="12" rx="3" fill="#d9d9e0" transform="rotate(-27 260 214)"/>
+            <!-- pochettes rangées -->
+            <g opacity=".9">
+              <rect x="316" y="66" width="70" height="70" rx="4" fill="#7a4a2a"/>
+              <rect x="330" y="60" width="70" height="76" rx="4" fill="#2f3d63"/>
+              <rect x="346" y="54" width="70" height="82" rx="4" fill="#3d6350"/>
+            </g>
+          </svg>
+        </div>
+      </div>
     </div>
+
+    <div class="searchcard">
+      <h2>Recherchez dans votre collection</h2>
+      <p>Un vinyle, un artiste, un album ou une piste — pour savoir si vous le possédez déjà.</p>
+      <form id="home-search" class="searchbar">
+        <input name="q" type="search" placeholder="Rechercher un vinyle, un artiste, un album ou une piste…" autocomplete="off">
+        <button class="btn dark" type="submit">Rechercher</button>
+      </form>
+      <p class="examples">Exemples : <span>Pink Floyd — The Dark Side of the Moon</span>
+        <span>Daft Punk</span> <span>Tomorrowland</span> <span>Apollo</span></p>
+    </div>
+
+    <section id="home-feats" class="lightsec">
+      <h2 class="sechead">Tout ce qu'il vous faut</h2>
+      <div class="feats4">
+        <article>
+          <svg viewBox="0 0 48 48" class="ico"><rect x="6" y="6" width="12" height="3"/><rect x="6" y="6" width="3" height="12"/><rect x="30" y="6" width="12" height="3"/><rect x="39" y="6" width="3" height="12"/><rect x="6" y="39" width="12" height="3"/><rect x="6" y="30" width="3" height="12"/><rect x="30" y="39" width="12" height="3"/><rect x="39" y="30" width="3" height="12"/><circle cx="24" cy="24" r="11" fill="none" stroke-width="2.5"/><circle cx="24" cy="24" r="4" class="fill-gold"/></svg>
+          <h3>Ajoutez vos vinyles</h3>
+          <p>Prenez le recto et le verso en photo. Le cadre est rogné sur la pochette, la liste
+            des titres est lue automatiquement.</p>
+        </article>
+        <article>
+          <svg viewBox="0 0 48 48" class="ico"><circle cx="21" cy="21" r="13" fill="none" stroke-width="3"/><path d="M31 31 L42 42" stroke-width="4" stroke-linecap="round"/></svg>
+          <h3>Recherche intelligente</h3>
+          <p>Vérifiez instantanément si un disque — ou une simple piste — se trouve déjà dans
+            votre collection, et sur quelle face.</p>
+        </article>
+        <article>
+          <svg viewBox="0 0 48 48" class="ico"><rect x="7" y="30" width="7" height="12" class="fill-gold" stroke="none"/><rect x="18" y="22" width="7" height="20" class="fill-gold" stroke="none"/><rect x="29" y="14" width="7" height="28" class="fill-dark" stroke="none"/><rect x="40" y="6" width="4" height="36" class="fill-gold" stroke="none"/></svg>
+          <h3>Statistiques</h3>
+          <p>Décennies, artistes et labels les plus présents, nombre de titres : votre collection
+            vue d'un seul coup d'œil.</p>
+        </article>
+        <article>
+          <svg viewBox="0 0 48 48" class="ico"><circle cx="17" cy="16" r="7" fill="none" stroke-width="3"/><path d="M5 40c0-7 5.5-11 12-11s12 4 12 11" fill="none" stroke-width="3"/><circle cx="34" cy="18" r="6" fill="none" stroke-width="3" class="stroke-gold"/><path d="M31 29c6 0 12 3.5 12 11" fill="none" stroke-width="3" class="stroke-gold"/></svg>
+          <h3>Partagez</h3>
+          <p>Votre collection a sa propre adresse publique, à envoyer à qui vous voulez —
+            ou à garder privée d'une case à cocher.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="lightsec">
+      <div class="sechead-row">
+        <h2>Ajouts récents</h2>
+        <span class="muted">Les derniers disques rangés sur le site</span>
+      </div>
+      <div id="home-recent" class="recent"></div>
+    </section>
+
+    <section class="ctaband">
+      <div class="ctaband-inner">
+        <span class="ctadisc" aria-hidden="true"></span>
+        <div>
+          <h2>Prêt à organiser votre collection de vinyles&nbsp;?</h2>
+          <p>Rejoignez Vinylthèque et gardez votre musique au bout des doigts.</p>
+        </div>
+        <button class="btn gold big" data-go="register">Créer un compte gratuit</button>
+      </div>
+    </section>
+  </section>
+
+  <!-- ================================================= connexion / compte -->
+  <section id="view-auth" class="view hidden">
     <div class="card auth-card">
       <div class="tabs">
         <button class="tab active" data-tab="login">Connexion</button>
@@ -30,42 +149,70 @@
       <form id="form-login" class="stack">
         <label>Email ou nom d'utilisateur<input name="email" autocomplete="username" required></label>
         <label>Mot de passe<input name="password" type="password" autocomplete="current-password" required></label>
-        <button class="btn primary" type="submit">Se connecter</button>
+        <button class="btn gold" type="submit">Se connecter</button>
+        <button type="button" class="linky" id="show-forgot">Mot de passe oublié ?</button>
       </form>
       <form id="form-register" class="stack hidden">
         <label>Email<input name="email" type="email" autocomplete="email" required></label>
         <label>Nom d'utilisateur <small>(sert d'adresse publique)</small><input name="username" required minlength="3" pattern="[A-Za-z0-9_-]+"></label>
         <label>Mot de passe <small>(8 caractères min.)</small><input name="password" type="password" autocomplete="new-password" required minlength="8"></label>
-        <button class="btn primary" type="submit">Créer mon compte</button>
+        <button class="btn gold" type="submit">Créer mon compte</button>
+      </form>
+      <form id="form-forgot" class="stack hidden">
+        <p class="hint" style="margin:0">Indiquez votre adresse : vous recevrez un lien pour
+          choisir un nouveau mot de passe.</p>
+        <label>Email<input name="email" type="email" autocomplete="email" required></label>
+        <button class="btn gold" type="submit">Envoyer le lien</button>
+        <button type="button" class="linky" id="back-login">Revenir à la connexion</button>
       </form>
       <p id="auth-error" class="error"></p>
     </div>
   </section>
 
-  <!-- vue recherche -->
+  <!-- ======================================== nouveau mot de passe (lien) -->
+  <section id="view-reset" class="view hidden">
+    <div class="card auth-card">
+      <h2 style="margin:0 0 14px;font-size:20px">Nouveau mot de passe</h2>
+      <form id="form-reset" class="stack">
+        <label>Nouveau mot de passe <small>(8 caractères min.)</small>
+          <input name="password" type="password" autocomplete="new-password" required minlength="8"></label>
+        <button class="btn gold" type="submit">Enregistrer et me connecter</button>
+      </form>
+      <p id="reset-msg" class="error"></p>
+    </div>
+  </section>
+
+  <!-- ============================================================ recherche -->
   <section id="view-search" class="view hidden">
     <div class="search-hero">
       <h2>Recherche</h2>
-      <p class="hint">Cherche un album, un artiste, un label — ou un morceau, pour savoir sur quel disque tu l'as déjà.</p>
+      <p class="hint">Un album, un artiste, un label — ou un morceau, pour savoir sur quel disque
+        vous l'avez déjà.</p>
       <input id="q" type="search" placeholder="Ex. « Mammoth », « Hardwell », « Smash The House »…" autocomplete="off">
     </div>
     <div id="search-results"></div>
   </section>
 
-  <!-- vue collection -->
+  <!-- ========================================================= statistiques -->
+  <section id="view-stats" class="view hidden">
+    <h2 class="sechead">Statistiques</h2>
+    <div id="stats-body"></div>
+  </section>
+
+  <!-- ============================================================ collection -->
   <section id="view-collection" class="view hidden">
     <div class="toolbar">
       <h2 id="collection-title">Ma collection</h2>
-      <input id="search" type="search" placeholder="Rechercher un disque, un artiste, un titre…">
-      <button id="btn-add" class="btn primary">+ Ajouter un vinyle</button>
+      <input id="search" type="search" placeholder="Filtrer : disque, artiste, titre…">
+      <button id="btn-add" class="btn gold">+ Ajouter un vinyle</button>
     </div>
+    <div id="verify-line" class="verify-line hidden"></div>
     <div id="share-line" class="share-line hidden"></div>
     <div id="grid" class="grid"></div>
-    <p id="empty" class="empty hidden">Aucun vinyle pour l'instant. Clique sur « Ajouter un vinyle ».</p>
+    <p id="empty" class="empty hidden">Aucun vinyle pour l'instant. Cliquez sur « Ajouter un vinyle ».</p>
   </section>
 </main>
 
-<!-- modale fiche vinyle -->
 <div id="modal" class="modal hidden">
   <div class="modal-inner">
     <button class="close" data-close>&times;</button>
@@ -73,7 +220,7 @@
   </div>
 </div>
 
-<footer class="foot">Vinylthèque — reconnaissance des titres par lecture de la pochette (OCR) + base MusicBrainz.</footer>
+<footer class="foot">Vinylthèque — titres reconnus par lecture de la pochette (OCR) et complétés par MusicBrainz.</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="/app.js"></script>
