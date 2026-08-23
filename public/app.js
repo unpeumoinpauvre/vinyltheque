@@ -306,8 +306,9 @@ async function loadRecent() {
   try {
     const { vinyls } = await api('/api/recent');
     box.dataset.done = '1';
-    box.innerHTML = vinyls.length
-      ? vinyls.map((v) => `<div class="rec">
+    const list = vinyls.slice(0, 6);          // six derniers albums, pas plus
+    box.innerHTML = list.length
+      ? list.map((v) => `<div class="rec">
           <div class="cov" style="background-image:url('/api/vinyls/${v.id}/image/front')"></div>
           <div class="m"><div class="t">${esc(v.title)}</div>
             <div class="s">${esc(v.artist) || '—'}${v.year ? ' · ' + esc(v.year) : ''}</div></div>
