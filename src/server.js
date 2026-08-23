@@ -6,8 +6,10 @@ import bcrypt from 'bcryptjs';
 import sharp from 'sharp';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 import { pool, initDb } from './db.js';
 import { signIn, signOut, readUser, requireAuth } from './auth.js';
+import { sendWelcome, sendReset, sendPasswordChanged, mailReady, baseUrl } from './mail.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -43,6 +45,23 @@ function normalizeTracks(raw) {
    sauf appel explicite à withMetadata() : le JPEG stocké est donc dépourvu
    d'EXIF (GPS, appareil, date), d'IPTC, de XMP et de vignette. .rotate()
    applique l'orientation EXIF d'origine avant qu'elle ne disparaisse. */
+/* Jeton envoyé par e-mail : on garde son empreinte en base, pas sa valeur.
+   Une fuite de la base ne permet donc pas de prendre la main sur un compte. */
+const newToken = () => crypto.randomBytes(32).toString('base64url');
+const hashToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+
+/* Limitation simple en mémoire, pour éviter d'arroser une boîte mail. */
+const hits = new Map();
+function throttle(key, max, windowMs) {
+  const now = Date.now();
+  const list = (hits.get(key) || []).filter((t) => now - t < windowMs);
+  if (list.length >= max) return false;
+  list.push(now);
+  hits.set(key, list);
+  if (hits.size > 5000) hits.clear();
+  return true;
+}
+
 async function shrink(buf) {
   return sharp(buf, { failOn: 'none' })
     .rotate()
@@ -89,12 +108,19 @@ app.post('/api/register', async (req, res) => {
 
   try {
     const hash = await bcrypt.hash(password, 10);
+    const token = newToken();
     const { rows } = await pool.query(
-      'INSERT INTO users (email, username, password_hash) VALUES ($1,$2,$3) RETURNING id, username, is_public',
-      [email, username, hash]
+      `INSERT INTO users (email, username, password_hash, verify_hash, verify_expires)
+       VALUES ($1,$2,$3,$4, now() + interval '48 hours')
+       RETURNING id, username, is_public, email_verified`,
+      [email, username, hash, hashToken(token)]
     );
     signIn(res, rows[0]);
     res.json({ user: rows[0] });
+
+    // envoi après la réponse : un souci d'e-mail ne doit pas bloquer l'inscription
+    sendWelcome({ to: email, username, url: `${baseUrl(req)}/verifier?token=${token}` })
+      .catch((e) => console.error('[mail] bienvenue', e.message));
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'Cet email ou ce nom est déjà utilisé.' });
     console.error(e);
@@ -113,21 +139,102 @@ app.post('/api/login', async (req, res) => {
     return res.status(401).json({ error: 'Identifiants incorrects.' });
   }
   signIn(res, user);
-  res.json({ user: { id: user.id, username: user.username, is_public: user.is_public } });
+  res.json({ user: {
+    id: user.id, username: user.username,
+    is_public: user.is_public, email_verified: user.email_verified
+  } });
 });
 
 app.post('/api/logout', (req, res) => { signOut(res); res.json({ ok: true }); });
 
 app.get('/api/me', async (req, res) => {
   if (!req.user) return res.json({ user: null });
-  const { rows } = await pool.query('SELECT id, username, email, is_public FROM users WHERE id = $1', [req.user.id]);
-  res.json({ user: rows[0] ?? null });
+  const { rows } = await pool.query(
+    'SELECT id, username, email, is_public, email_verified FROM users WHERE id = $1', [req.user.id]);
+  res.json({ user: rows[0] ?? null, mail: mailReady() });
 });
 
 app.post('/api/me/visibility', requireAuth, async (req, res) => {
   const isPublic = !!req.body.is_public;
   await pool.query('UPDATE users SET is_public = $1 WHERE id = $2', [isPublic, req.user.id]);
   res.json({ is_public: isPublic });
+});
+
+/* --------------------------------------- vérification & mot de passe oublié */
+
+app.get('/api/verify', async (req, res) => {
+  const h = hashToken(req.query.token || '');
+  const { rows } = await pool.query(
+    `UPDATE users SET email_verified = TRUE, verify_hash = NULL, verify_expires = NULL
+      WHERE verify_hash = $1 AND verify_expires > now()
+      RETURNING id, username, is_public, email_verified`,
+    [h]
+  );
+  if (!rows[0]) return res.status(400).json({ error: 'Lien invalide ou expiré. Demande un nouvel envoi.' });
+  signIn(res, rows[0]);
+  res.json({ user: rows[0] });
+});
+
+app.post('/api/verify/resend', requireAuth, async (req, res) => {
+  if (!throttle('v:' + req.user.id, 3, 3600e3))
+    return res.status(429).json({ error: 'Trop de demandes. Réessaie dans une heure.' });
+
+  const token = newToken();
+  const { rows } = await pool.query(
+    `UPDATE users SET verify_hash = $1, verify_expires = now() + interval '48 hours'
+      WHERE id = $2 AND email_verified = FALSE RETURNING email, username`,
+    [hashToken(token), req.user.id]
+  );
+  if (!rows[0]) return res.json({ ok: true });   // déjà vérifié
+  try {
+    await sendWelcome({ to: rows[0].email, username: rows[0].username,
+      url: `${baseUrl(req)}/verifier?token=${token}` });
+    res.json({ ok: true });
+  } catch (e) { res.status(502).json({ error: "L'envoi de l'e-mail a échoué : " + e.message }); }
+});
+
+/* Réponse identique que l'adresse existe ou non : on n'indique jamais
+   à un inconnu si un compte est associé à une adresse. */
+app.post('/api/forgot', async (req, res) => {
+  const email = clean(req.body.email, 120).toLowerCase();
+  if (!throttle('f:' + (req.ip || '') , 5, 3600e3))
+    return res.status(429).json({ error: 'Trop de demandes. Réessaie plus tard.' });
+
+  const { rows } = await pool.query('SELECT id, email, username FROM users WHERE email = $1', [email]);
+  if (rows[0] && throttle('fu:' + rows[0].id, 3, 3600e3)) {
+    const token = newToken();
+    await pool.query(
+      `UPDATE users SET reset_hash = $1, reset_expires = now() + interval '1 hour' WHERE id = $2`,
+      [hashToken(token), rows[0].id]
+    );
+    sendReset({ to: rows[0].email, username: rows[0].username,
+      url: `${baseUrl(req)}/motdepasse?token=${token}` })
+      .catch((e) => console.error('[mail] réinitialisation', e.message));
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/reset', async (req, res) => {
+  const password = String(req.body.password ?? '');
+  if (password.length < 8) return res.status(400).json({ error: 'Mot de passe trop court (8 caractères min.).' });
+
+  const h = hashToken(req.body.token || '');
+  const { rows } = await pool.query(
+    'SELECT id, email, username, is_public FROM users WHERE reset_hash = $1 AND reset_expires > now()', [h]
+  );
+  const user = rows[0];
+  if (!user) return res.status(400).json({ error: 'Lien invalide ou expiré. Refais une demande.' });
+
+  await pool.query(
+    `UPDATE users SET password_hash = $1, reset_hash = NULL, reset_expires = NULL,
+                      email_verified = TRUE
+      WHERE id = $2`,
+    [await bcrypt.hash(password, 10), user.id]
+  );
+  signIn(res, user);
+  res.json({ user: { id: user.id, username: user.username, is_public: user.is_public, email_verified: true } });
+  sendPasswordChanged({ to: user.email, username: user.username })
+    .catch((e) => console.error('[mail] confirmation', e.message));
 });
 
 /* --------------------------------------------------------------- vinyls */
@@ -187,6 +294,50 @@ app.get('/api/vinyls/:id/image/:kind', async (req, res) => {
   res.set('Content-Type', img.mime);
   res.set('Cache-Control', 'public, max-age=86400');
   res.send(img.data);
+});
+
+/* ------------------------------------------- accueil : ajouts récents */
+
+app.get('/api/recent', async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT v.id, v.title, v.artist, v.year
+       FROM vinyls v
+       JOIN users u ON u.id = v.user_id
+      WHERE u.is_public = TRUE
+        AND EXISTS (SELECT 1 FROM images i WHERE i.vinyl_id = v.id AND i.kind = 'front')
+      ORDER BY v.created_at DESC
+      LIMIT 8`
+  );
+  res.set('Cache-Control', 'public, max-age=120');
+  res.json({ vinyls: rows });
+});
+
+/* ------------------------------------------------------------ statistiques */
+
+app.get('/api/stats', requireAuth, async (req, res) => {
+  const u = [req.user.id];
+  const [tot, dec, art, lab] = await Promise.all([
+    pool.query(`SELECT count(*)::int AS disques,
+                       coalesce(sum(jsonb_array_length(tracks)),0)::int AS titres,
+                       count(*) FILTER (WHERE artist <> '')::int AS avec_artiste
+                  FROM vinyls WHERE user_id = $1`, u),
+    pool.query(`SELECT (left(year,3) || '0') AS decennie, count(*)::int AS n
+                  FROM vinyls
+                 WHERE user_id = $1 AND year ~ '^(19|20)[0-9]{2}$'
+              GROUP BY 1 ORDER BY 1`, u),
+    pool.query(`SELECT artist, count(*)::int AS n FROM vinyls
+                 WHERE user_id = $1 AND artist <> ''
+              GROUP BY 1 ORDER BY n DESC, artist LIMIT 6`, u),
+    pool.query(`SELECT label, count(*)::int AS n FROM vinyls
+                 WHERE user_id = $1 AND label <> ''
+              GROUP BY 1 ORDER BY n DESC, label LIMIT 6`, u)
+  ]);
+  res.json({
+    total: tot.rows[0],
+    decennies: dec.rows,
+    artistes: art.rows,
+    labels: lab.rows
+  });
 });
 
 /* --------------------------------------------------- collection publique */
@@ -255,7 +406,7 @@ app.get('/api/lookup', async (req, res) => {
 
 /* ---------------------------------------------------------------- pages */
 
-app.get(['/u/:username', '/login', '/collection', '/recherche'], (_req, res) =>
+app.get(['/u/:username', '/login', '/collection', '/recherche', '/verifier', '/motdepasse', '/statistiques'], (_req, res) =>
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'))
 );
 

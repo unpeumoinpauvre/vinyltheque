@@ -49,6 +49,16 @@ export async function initDb() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_vinyls_user ON vinyls(user_id);
+
+    -- vérification d'adresse et réinitialisation de mot de passe.
+    -- On ne stocke que le SHA-256 des jetons, jamais le jeton lui-même.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS verify_hash    TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS verify_expires TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_hash     TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires  TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS idx_users_verify ON users(verify_hash);
+    CREATE INDEX IF NOT EXISTS idx_users_reset  ON users(reset_hash);
   `);
   console.log('Schéma de base de données prêt.');
 }
