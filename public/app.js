@@ -15,46 +15,107 @@ async function api(url, opts = {}) {
 
 /* ------------------------------------------------------------ OCR photo */
 
-const NOISE = /^(side|face|stereo|mono|all rights|tous droits|made in|printed|produced|produit|recorded|enregistr|℗|©|\(p\)|\(c\)|www\.|http)/i;
+const NOISE_RE = /^(stereo|mono|\d{2,3}\s?(rpm|t\/min)|all rights|tous droits|made in|printed|manufactur|distribut|produced|produit|executive|recorded|enregistr|master(ed|ing)|mix(ed|ing)|remaster|artwork|design|photograph|publish|licen|under exclusive|marketing|compilation|total time|dur[ée]e|℗|©|\(p\)|\(c\)|www\.|http|[0-9]{8,})/i;
 
-function parseTracksFromText(text) {
+const SIDE_RE = /^(?:face|side|c[oô]t[ée])\s*([A-D1-4])\b/i;
+
+/* Rejette le bruit d'OCR : lignes trop courtes, pleines de symboles,
+   ou faites de fragments d'une lettre (« A A 0 HFA »). */
+function looksLikeTitle(t) {
+  if (t.length < 4 || t.length > 90) return false;
+  const letters = (t.match(/[a-zA-ZÀ-ÿ]/g) || []).length;
+  if (letters < 4 || letters / t.length < 0.55) return false;
+  const words = t.split(/\s+/);
+  const tiny = words.filter((w) => w.replace(/[^a-zA-ZÀ-ÿ0-9]/g, '').length <= 1).length;
+  if (words.length >= 3 && tiny / words.length > 0.34) return false;
+  if (/^[IVX]+$/i.test(t)) return false;
+  return !NOISE_RE.test(t);
+}
+
+function parseTracks(lines, minConf = 62) {
   const out = [];
-  let side = '';
-  for (let raw of String(text).split(/\r?\n/)) {
-    let line = raw.replace(/[|_•·¤]/g, ' ').replace(/\s+/g, ' ').trim();
+  const counts = {};
+  let side = '', started = false;
+
+  for (const raw of lines) {
+    if ((raw.conf ?? 100) < minConf) continue;
+    let line = String(raw.text).replace(/[|_•·¤~^"“”]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!line) continue;
 
-    const sideHdr = line.match(/^(?:face|side|c[oô]t[ée])\s*([A-D1-4])\b/i);
-    if (sideHdr) { side = sideHdr[1].toUpperCase(); continue; }
-    if (/^[A-D]$/i.test(line)) { side = line.toUpperCase(); continue; }
-    if (NOISE.test(line)) continue;
+    const sh = line.match(SIDE_RE);
+    if (sh) { side = sh[1].toUpperCase(); started = true; continue; }
+    if (/^[A-D]$/.test(line)) { side = line; started = true; continue; }
 
     let num = '';
-    const m = line.match(/^([A-D]?\s?\d{1,2})\s*[.\)\-–:]?\s+(.*)$/);
-    if (m) { num = m[1].replace(/\s/g, '').toUpperCase(); line = m[2]; }
+    const m = line.match(/^([A-D]?\s?\d{1,2})\s*[.\)\-–:]\s+(.*)$/);
+    if (m) { num = m[1].replace(/\s/g, '').toUpperCase(); line = m[2]; started = true; }
 
     line = line
-      .replace(/\(?\b\d{1,2}[:.'’]\d{2}\b\)?\s*$/, '')      // durée en fin de ligne
-      .replace(/[\s.\-–_]+$/, '')
+      .replace(/\(?\b\d{1,2}[:.'’]\d{2}\b\)?\s*$/, '')   // durée en fin de ligne
+      .replace(/[\s.\-–_:]+$/, '')
       .trim();
 
-    if (line.length < 2 || line.length > 90) continue;
-    if (!/[a-zA-ZÀ-ÿ]/.test(line)) continue;
-    if (!m && out.length === 0) continue;                    // évite le bruit avant la 1re piste
+    if (!started || !looksLikeTitle(line)) continue;
+    if (out.some((o) => o.title.toLowerCase() === line.toLowerCase())) continue;
 
-    const label = /^[A-D]\d/.test(num) ? num : (side ? side + (num.replace(/\D/g, '') || out.length + 1) : num);
+    const key = side || '_';
+    counts[key] = (counts[key] || 0) + 1;
+    const label = /^[A-D]\d/.test(num) ? num
+      : side ? side + (num.replace(/\D/g, '') || counts[key])
+      : num;
     out.push({ side: label, title: line });
   }
   return out.slice(0, 40);
 }
 
-async function ocrImage(file, onProgress) {
+/* Met la photo en niveaux de gris, étire le contraste, agrandit,
+   et inverse si le texte est clair sur fond sombre (Tesseract lit
+   beaucoup mieux du texte foncé sur fond clair). */
+async function prepare(file) {
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(2.5, Math.max(1, 2400 / Math.max(bmp.width, bmp.height)));
+  const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0, w, h);
+
+  const img = ctx.getImageData(0, 0, w, h), d = img.data;
+  const hist = new Uint32Array(256);
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const g = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
+    d[i] = d[i + 1] = d[i + 2] = g; hist[g]++; sum += g;
+  }
+  const px = d.length / 4, mean = sum / px;
+  let lo = 0, hi = 255, acc = 0;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > px * 0.02) { lo = v; break; } }
+  acc = 0;
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > px * 0.02) { hi = v; break; } }
+  const span = Math.max(1, hi - lo), dark = mean < 120;
+
+  for (let i = 0; i < d.length; i += 4) {
+    let g = ((d[i] - lo) / span) * 255;
+    g = g < 0 ? 0 : g > 255 ? 255 : g;
+    if (dark) g = 255 - g;
+    d[i] = d[i + 1] = d[i + 2] = g;
+  }
+  ctx.putImageData(img, 0, 0);
+  return cv;
+}
+
+async function ocrLines(source, onProgress) {
   const worker = await Tesseract.createWorker(['fra', 'eng'], 1, {
     logger: (m) => m.status === 'recognizing text' && onProgress(Math.round(m.progress * 100))
   });
   try {
-    const { data } = await worker.recognize(file);
-    return data.text;
+    await worker.setParameters({ user_defined_dpi: '300', preserve_interword_spaces: '1' });
+    const { data } = await worker.recognize(source, {}, { text: true, blocks: true });
+    const lines = [];
+    (data.blocks || []).forEach((b) => (b.paragraphs || []).forEach((p) => (p.lines || []).forEach((l) =>
+      lines.push({ text: l.text, conf: l.confidence ?? 100 }))));
+    if (!lines.length) (data.text || '').split('\n').forEach((t) => lines.push({ text: t, conf: 100 }));
+    return lines;
   } finally { await worker.terminate(); }
 }
 
@@ -197,18 +258,20 @@ function showForm(v = null) {
 
   $('#btn-ocr').onclick = async (e) => {
     const file = form.back.files?.[0] || form.front.files?.[0];
-    if (!file) { status.textContent = 'Choisis d\'abord une photo (de préférence le verso).'; return; }
+    if (!file) { status.textContent = "Choisis d'abord une photo (de préférence le verso)."; return; }
     e.target.disabled = true;
-    status.textContent = 'Lecture de la photo… 0 %';
+    status.textContent = 'Préparation de la photo…';
     try {
-      const text = await ocrImage(file, (p) => status.textContent = `Lecture de la photo… ${p} %`);
-      const tracks = parseTracksFromText(text);
+      const canvas = await prepare(file);
+      status.textContent = 'Lecture de la photo… 0 %';
+      const lines = await ocrLines(canvas, (p) => status.textContent = `Lecture de la photo… ${p} %`);
+      let tracks = parseTracks(lines, 62);
+      if (!tracks.length) tracks = parseTracks(lines, 0);
       if (tracks.length) {
         form.tracks.value = tracks.map((x) => `${x.side ? x.side + '. ' : ''}${x.title}`).join('\n');
-        status.innerHTML = `<span class="ok">${tracks.length} titres détectés.</span> Vérifie et corrige si besoin.`;
+        status.innerHTML = `<span class="ok">${tracks.length} titres détectés.</span> Relis la liste : sur une pochette sombre ou très décorée l'OCR se trompe — supprime les lignes en trop, ou essaie « Compléter depuis MusicBrainz ».`;
       } else {
-        form.tracks.value = text.split('\n').map((l) => l.trim()).filter(Boolean).join('\n');
-        status.textContent = 'Texte brut extrait — à nettoyer à la main.';
+        status.textContent = "Rien de lisible sur cette photo. Essaie « Compléter depuis MusicBrainz », ou reprends la photo bien cadrée sur la liste des titres.";
       }
     } catch (err) {
       status.textContent = 'Échec de la lecture : ' + err.message;
