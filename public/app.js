@@ -429,13 +429,13 @@ function showForm(v = null) {
       <div class="photos">
         <div class="photo-slot">
           <img id="pv-front" ${v?.has_front ? `src="/api/vinyls/${v.id}/image/front"` : 'hidden'} alt="">
-          Recto (pochette)
-          <input type="file" name="front" accept="image/*" capture="environment">
+          Recto (pochette)<br><small>Photo ou galerie</small>
+          <input type="file" name="front" accept="image/*">
         </div>
         <div class="photo-slot">
           <img id="pv-back" ${v?.has_back ? `src="/api/vinyls/${v.id}/image/back"` : 'hidden'} alt="">
-          Verso (liste des titres)
-          <input type="file" name="back" accept="image/*" capture="environment">
+          Verso (liste des titres)<br><small>Photo ou galerie</small>
+          <input type="file" name="back" accept="image/*">
         </div>
       </div>
       <label class="inline"><input type="checkbox" id="autocrop" checked> Recadrer automatiquement sur la pochette</label>
