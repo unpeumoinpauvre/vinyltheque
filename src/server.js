@@ -39,11 +39,15 @@ function normalizeTracks(raw) {
     .slice(0, 60);
 }
 
+/* Redimensionne et RÉ-ENCODE la photo. sharp ne recopie aucune métadonnée
+   sauf appel explicite à withMetadata() : le JPEG stocké est donc dépourvu
+   d'EXIF (GPS, appareil, date), d'IPTC, de XMP et de vignette. .rotate()
+   applique l'orientation EXIF d'origine avant qu'elle ne disparaisse. */
 async function shrink(buf) {
-  return sharp(buf)
+  return sharp(buf, { failOn: 'none' })
     .rotate()
     .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 82 })
+    .jpeg({ quality: 82, mozjpeg: false })
     .toBuffer();
 }
 
