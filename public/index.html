@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vinylthèque — ma collection de vinyles</title>
+<meta name="description" content="Catalogue ta collection de vinyles : deux photos par disque et les titres remplis automatiquement.">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23151517'/><circle cx='16' cy='16' r='9' fill='none' stroke='%23444' /><circle cx='16' cy='16' r='4' fill='%23e0603a'/></svg>">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><span class="disc"></span> Vinylthèque</a>
+  <div class="spacer"></div>
+  <div id="userbox" class="userbox"></div>
+</header>
+
+<main id="app">
+  <!-- vue accueil / connexion -->
+  <section id="view-auth" class="view hidden">
+    <div class="hero">
+      <h1>Ta collection de vinyles, enfin rangée.</h1>
+      <p>Deux photos par disque, les titres remplis tout seuls, et une page publique à partager.</p>
+    </div>
+    <div class="card auth-card">
+      <div class="tabs">
+        <button class="tab active" data-tab="login">Connexion</button>
+        <button class="tab" data-tab="register">Créer un compte</button>
+      </div>
+      <form id="form-login" class="stack">
+        <label>Email ou nom d'utilisateur<input name="email" autocomplete="username" required></label>
+        <label>Mot de passe<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="btn primary" type="submit">Se connecter</button>
+      </form>
+      <form id="form-register" class="stack hidden">
+        <label>Email<input name="email" type="email" autocomplete="email" required></label>
+        <label>Nom d'utilisateur <small>(sert d'adresse publique)</small><input name="username" required minlength="3" pattern="[A-Za-z0-9_-]+"></label>
+        <label>Mot de passe <small>(8 caractères min.)</small><input name="password" type="password" autocomplete="new-password" required minlength="8"></label>
+        <button class="btn primary" type="submit">Créer mon compte</button>
+      </form>
+      <p id="auth-error" class="error"></p>
+    </div>
+  </section>
+
+  <!-- vue collection -->
+  <section id="view-collection" class="view hidden">
+    <div class="toolbar">
+      <h2 id="collection-title">Ma collection</h2>
+      <input id="search" type="search" placeholder="Rechercher un disque, un artiste, un titre…">
+      <button id="btn-add" class="btn primary">+ Ajouter un vinyle</button>
+    </div>
+    <div id="share-line" class="share-line hidden"></div>
+    <div id="grid" class="grid"></div>
+    <p id="empty" class="empty hidden">Aucun vinyle pour l'instant. Clique sur « Ajouter un vinyle ».</p>
+  </section>
+</main>
+
+<!-- modale fiche vinyle -->
+<div id="modal" class="modal hidden">
+  <div class="modal-inner">
+    <button class="close" data-close>&times;</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<footer class="foot">Vinylthèque — reconnaissance des titres par lecture de la pochette (OCR) + base MusicBrainz.</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
