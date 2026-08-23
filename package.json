@@ -1,0 +1,22 @@
+{
+  "name": "vinyltheque",
+  "version": "1.0.0",
+  "description": "Catalogue de collection de vinyles avec 2 photos et remplissage automatique des titres",
+  "main": "src/server.js",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.13.1",
+    "sharp": "^0.33.5"
+  }
+}
