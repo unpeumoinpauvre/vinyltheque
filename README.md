@@ -7,6 +7,8 @@ Catalogue de collection de vinyles : **deux photos par disque** (recto / verso) 
 - Compte utilisateur (email + mot de passe), chaque collection appartient à son compte
 - Site public : la collection est consultable sur `/u/<nom-utilisateur>` (désactivable)
 - Deux photos par vinyle (recto = pochette, verso = liste des titres), redimensionnées et stockées en base
+- **Recadrage automatique** sur la pochette : le contour de la photo (table, mur, doigts) est détecté par l'énergie des contours et retiré ; désactivable au cas par cas
+- **Métadonnées supprimées** : la photo est ré-encodée dans le navigateur *avant* l'envoi (EXIF, GPS, appareil, date, IPTC, XMP, vignette), puis à nouveau côté serveur par sharp. L'orientation EXIF est appliquée à l'image avant suppression.
 - Titres remplis automatiquement :
   1. **Lecture de la photo (OCR)** — Tesseract.js s'exécute dans le navigateur sur la photo du verso
   2. **MusicBrainz** — complète artiste, année, label et tracklist à partir du nom du disque
