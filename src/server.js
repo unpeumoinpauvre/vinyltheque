@@ -306,7 +306,7 @@ app.get('/api/recent', async (_req, res) => {
       WHERE u.is_public = TRUE
         AND EXISTS (SELECT 1 FROM images i WHERE i.vinyl_id = v.id AND i.kind = 'front')
       ORDER BY v.created_at DESC
-      LIMIT 8`
+      LIMIT 6`
   );
   res.set('Cache-Control', 'public, max-age=120');
   res.json({ vinyls: rows });
