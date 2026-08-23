@@ -481,7 +481,7 @@ function showForm(v = null) {
   $('#btn-ocr').onclick = async (e) => {
     const back  = shots.back  || form.back.files?.[0];
     const front = shots.front || form.front.files?.[0];
-    if (!back && !front) { status.textContent = "Ajoute d'abord au moins une photo."; return; }
+    if (!back && !front) { status.textContent = "Ajoutez d'abord au moins une photo."; return; }
     e.target.disabled = true;
     const done = [];
     try {
@@ -527,15 +527,15 @@ function showForm(v = null) {
       }
 
       status.innerHTML = done.length
-        ? `<span class="ok">Rempli : ${done.join(', ')}.</span> Vérifie et corrige avant d'enregistrer.`
-        : "Rien de lisible sur ces photos. Renseigne le nom du vinyle et utilise « Compléter depuis MusicBrainz ».";
+        ? `<span class="ok">Rempli : ${done.join(', ')}.</span> Vérifiez et corrigez avant d'enregistrer.`
+        : "Rien de lisible sur ces photos. Renseignez le nom du vinyle et utilisez « Compléter depuis MusicBrainz ».";
     } catch (err) {
       status.textContent = 'Échec de la lecture : ' + err.message;
     } finally { e.target.disabled = false; }
   };
 
   $('#btn-online').onclick = async (e) => {
-    if (!form.title.value.trim()) { status.textContent = "Renseigne d'abord le nom du vinyle."; return; }
+    if (!form.title.value.trim()) { status.textContent = "Renseignez d'abord le nom du vinyle."; return; }
     e.target.disabled = true;
     status.textContent = 'Recherche en ligne…';
     try {
@@ -602,12 +602,12 @@ function renderSearch() {
   const q = $('#q').value.trim();
   const box = $('#search-results');
   if (q.length < 2) {
-    box.innerHTML = `<p class="res-empty">${state.vinyls.length} disque(s) dans ta collection. Tape au moins 2 lettres.</p>`;
+    box.innerHTML = `<p class="res-empty">${state.vinyls.length} disque(s) dans votre collection. Tapez au moins 2 lettres.</p>`;
     return;
   }
   const { albums, tracks } = searchCollection(q);
   if (!albums.length && !tracks.length) {
-    box.innerHTML = `<p class="res-empty">Rien trouvé pour « ${esc(q)} » — tu ne l'as pas encore.</p>`;
+    box.innerHTML = `<p class="res-empty">Rien trouvé pour « ${esc(q)} » — vous ne l'avez pas encore.</p>`;
     return;
   }
   let html = '';
@@ -684,14 +684,14 @@ function renderVerifyBanner() {
   const line = $('#verify-line');
   if (!state.me || state.me.email_verified) { line.classList.add('hidden'); return; }
   line.classList.remove('hidden');
-  line.innerHTML = `Adresse e-mail non confirmée — sans elle, impossible de récupérer ton mot de passe.
+  line.innerHTML = `Adresse e-mail non confirmée — sans elle, impossible de récupérer votre mot de passe.
     <button class="linky" id="resend">Renvoyer l'e-mail</button>`;
   $('#resend').onclick = async (e) => {
     e.target.disabled = true;
     e.target.textContent = 'Envoi…';
     try {
       await api('/api/verify/resend', { method: 'POST' });
-      line.innerHTML = 'E-mail envoyé. Regarde ta boîte de réception (et les indésirables).';
+      line.innerHTML = 'E-mail envoyé. Regardez votre boîte de réception (et les indésirables).';
     } catch (err) { line.innerHTML = 'Envoi impossible : ' + esc(err.message); }
   };
 }
