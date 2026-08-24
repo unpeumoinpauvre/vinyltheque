@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { pool, initDb } from './db.js';
 import { signIn, signOut, readUser, requireAuth } from './auth.js';
 import { sendWelcome, sendReset, sendPasswordChanged, mailReady, baseUrl } from './mail.js';
@@ -17,7 +18,7 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 app.use(readUser);
-app.use(express.static(path.join(__dirname, '..', 'public'), { etag: true, maxAge: 0 }));
+app.use(express.static(path.join(__dirname, '..', 'public'), { etag: true, maxAge: 0, index: false }));
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -406,9 +407,125 @@ app.get('/api/lookup', async (req, res) => {
 
 /* ---------------------------------------------------------------- pages */
 
-app.get(['/u/:username', '/login', '/collection', '/recherche', '/verifier', '/motdepasse', '/statistiques'], (_req, res) =>
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'))
-);
+/* ---------------------------------------------- pages, robots, sitemap */
+
+const INDEX_PATH = path.join(__dirname, '..', 'public', 'index.html');
+const INDEX_HTML = fs.readFileSync(INDEX_PATH, 'utf8');
+
+const attr = (v) => String(v ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const DEFAULT_TITLE = 'Vinylthèque — cataloguez votre collection de vinyles';
+const DEFAULT_DESC =
+  "Photographiez le recto et le verso de vos disques : les titres, l'artiste, l'année et le "
+  + "label se remplissent tout seuls. Cherchez un morceau pour savoir sur quel vinyle vous l'avez.";
+
+/* Rend index.html en injectant les balises propres à l'URL demandée.
+   Un même fichier sert toutes les routes : sans cela, Google verrait
+   le même titre et la même description sur toutes les pages. */
+function renderPage(req, res, opts = {}) {
+  const base = baseUrl(req);
+  const title = opts.title || DEFAULT_TITLE;
+  const description = opts.description || DEFAULT_DESC;
+  const url = opts.canonical || base + req.path;
+  const indexable = opts.indexable !== false;
+
+  let html = INDEX_HTML
+    .replace(/<title>[\s\S]*?<\/title>/, `<title>${attr(title)}</title>`)
+    .replace(/<meta name="description" content="[^"]*">/,
+             `<meta name="description" content="${attr(description)}">`);
+
+  const jsonld = opts.jsonld ? `\n<script type="application/ld+json">${JSON.stringify(opts.jsonld)}</script>` : '';
+
+  html = html.replace('</head>', `<link rel="canonical" href="${attr(url)}">
+<meta name="robots" content="${indexable ? 'index,follow,max-image-preview:large' : 'noindex,follow'}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Vinylthèque">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:title" content="${attr(title)}">
+<meta property="og:description" content="${attr(description)}">
+<meta property="og:url" content="${attr(url)}">
+<meta property="og:image" content="${base}/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">${jsonld}
+</head>`);
+
+  /* Pour un visiteur non connecté — donc pour les robots — la page d'accueil
+     est déjà visible dans le HTML, sans attendre l'exécution du JavaScript. */
+  if (opts.showHome) {
+    html = html.replace('<section id="view-home" class="view hidden">',
+                        '<section id="view-home" class="view">');
+  }
+  res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+}
+
+app.get('/', (req, res) => renderPage(req, res, {
+  canonical: baseUrl(req) + '/',
+  showHome: !req.user,
+  jsonld: {
+    '@context': 'https://schema.org',
+    '@type': 'WebApplication',
+    name: 'Vinylthèque',
+    url: baseUrl(req) + '/',
+    applicationCategory: 'MultimediaApplication',
+    inLanguage: 'fr',
+    description: DEFAULT_DESC,
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' }
+  }
+}));
+
+app.get('/u/:username', async (req, res) => {
+  const username = clean(req.params.username, 32).toLowerCase();
+  const { rows } = await pool.query(
+    `SELECT u.username, u.is_public, count(v.id)::int AS n
+       FROM users u LEFT JOIN vinyls v ON v.user_id = u.id
+      WHERE u.username = $1 GROUP BY u.username, u.is_public`, [username]
+  );
+  const o = rows[0];
+  if (!o || !o.is_public) {
+    return renderPage(req, res, { title: 'Collection privée — Vinylthèque', indexable: false });
+  }
+  renderPage(req, res, {
+    title: `Collection de ${o.username} — ${o.n} vinyle${o.n > 1 ? 's' : ''} · Vinylthèque`,
+    description: `Les ${o.n} vinyles de la collection de ${o.username} : pochettes, artistes, `
+      + `labels et listes de titres, sur Vinylthèque.`
+  });
+});
+
+app.get(['/login', '/collection', '/recherche', '/verifier', '/motdepasse', '/statistiques'],
+  (req, res) => renderPage(req, res, { indexable: false }));
+
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(
+`User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: ${baseUrl(req)}/sitemap.xml
+`);
+});
+
+app.get('/sitemap.xml', async (req, res) => {
+  const base = baseUrl(req);
+  const { rows } = await pool.query(
+    `SELECT u.username, max(v.created_at) AS updated
+       FROM users u JOIN vinyls v ON v.user_id = u.id
+      WHERE u.is_public = TRUE
+   GROUP BY u.username
+   ORDER BY u.username`
+  );
+  const urls = [`  <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`]
+    .concat(rows.map((r) =>
+      `  <url><loc>${base}/u/${encodeURIComponent(r.username)}</loc>`
+      + `<lastmod>${new Date(r.updated).toISOString().slice(0, 10)}</lastmod>`
+      + `<changefreq>weekly</changefreq><priority>0.7</priority></url>`));
+  res.type('application/xml').send(
+`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.join('\n')}
+</urlset>`);
+});
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
