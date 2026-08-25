@@ -280,7 +280,7 @@ function renderNav() {
   const items = state.me
     ? [['/collection', 'Ma collection'], ['/recherche', 'Recherche'],
        ['/statistiques', 'Statistiques'], ['/abonnement', 'Abonnement']]
-    : [['/', 'Accueil'], ['/tarifs', 'Tarifs']];
+    : [['/', 'Accueil'], ['/collections', 'Collections'], ['/tarifs', 'Tarifs']];
   $('#mainnav').innerHTML = items
     .map(([href, label]) => `<a href="${href}" class="${p === href ? 'on' : ''}">${label}</a>`).join('');
   $$('#mainnav a').forEach((a) => a.onclick = (e) => { e.preventDefault(); go(a.getAttribute('href')); });
@@ -309,13 +309,25 @@ async function loadRecent() {
     box.dataset.done = '1';
     const list = vinyls.slice(0, 6);          // six derniers albums, pas plus
     box.innerHTML = list.length
-      ? list.map((v) => `<div class="rec">
+      ? list.map((v) => `<a class="rec" href="/u/${encodeURIComponent(v.owner || '')}">
           <div class="cov" style="background-image:url('/api/vinyls/${v.id}/image/front')"></div>
           <div class="m"><div class="t">${esc(v.title)}</div>
             <div class="s">${esc(v.artist) || '—'}${v.year ? ' · ' + esc(v.year) : ''}</div></div>
-        </div>`).join('')
+        </a>`).join('')
       : `<p class="none">Aucune collection publique pour l'instant — la vôtre pourrait être la première.</p>`;
   } catch { box.innerHTML = ''; }
+}
+
+async function loadCollections() {
+  const box = $('#collections-list');
+  try {
+    const { collections } = await api('/api/collections');
+    box.innerHTML = collections.length
+      ? collections.map((c) => `<a class="coll" href="/u/${encodeURIComponent(c.username)}">
+          <span class="cn">${esc(c.username)}</span>
+          <span class="cc">${c.n} vinyle${c.n > 1 ? 's' : ''}</span></a>`).join('')
+      : '<p class="none">Aucune collection publique pour le moment.</p>';
+  } catch { /* le HTML rendu par le serveur reste affiché */ }
 }
 
 function vinylCard(v) {
@@ -906,6 +918,11 @@ async function route() {
   }
   if (p === '/motdepasse') { show('#view-reset'); return; }
 
+  if (p === '/collections') {
+    show('#view-collections');
+    await loadCollections();
+    return;
+  }
   if (p === '/tarifs' || p === '/abonnement') {
     show('#view-pricing');
     await showPricing(p === '/abonnement' ? 'abonnement' : 'tarifs');

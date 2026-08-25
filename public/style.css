@@ -109,7 +109,8 @@ body.home .foot{background:#15130f}
 
 .recent{max-width:1140px;margin:0 auto;display:grid;gap:16px;
   grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
-.recent .rec{background:#fff;border:1px solid #e6e0d7;border-radius:10px;overflow:hidden}
+.recent .rec{display:block;text-decoration:none;background:#fff;border:1px solid #e6e0d7;border-radius:10px;overflow:hidden;transition:transform .12s ease,box-shadow .12s ease}
+.recent .rec:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.10)}
 .recent .rec .cov{aspect-ratio:1;background:#eae4da center/cover no-repeat}
 .recent .rec .m{padding:9px 11px}
 .recent .rec .t{font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.3;
@@ -201,6 +202,32 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
 .chips{display:flex;gap:8px;flex-wrap:wrap;color:var(--dim);font-size:13.5px;margin-top:4px}
 .chips span{background:#232329;border-radius:999px;padding:3px 11px}
 .foot{text-align:center;color:#5e5b65;font-size:12.5px;padding:26px 16px 40px}
+.foot p{margin:0}
+.footnav{display:flex;flex-wrap:wrap;gap:18px;justify-content:center;margin:0 0 12px}
+.footnav a{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+.footnav a:hover{color:var(--gold);border-bottom-color:var(--gold)}
+
+/* --- collections publiques --- */
+.colls{max-width:1000px;margin:0 auto;display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+.colls .coll{display:flex;flex-direction:column;gap:4px;padding:16px 18px;text-decoration:none;
+  background:#fff;border:1px solid #e6e0d7;border-radius:10px;
+  transition:transform .12s ease,box-shadow .12s ease}
+.colls .coll:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.10)}
+.colls .cn{font-family:Oswald,system-ui,sans-serif;font-size:18px;letter-spacing:.4px;
+  text-transform:uppercase;color:var(--ink)}
+.colls .cc{font-size:13px;color:var(--ink-dim)}
+.colls .none{grid-column:1/-1;text-align:center;color:var(--ink-dim);font-size:14px}
+
+/* --- questions frequentes --- */
+.faqs{max-width:760px;margin:0 auto;display:grid;gap:10px}
+.faqs .faq{background:#fff;border:1px solid #e6e0d7;border-radius:10px;padding:14px 18px}
+.faqs .faq summary{cursor:pointer;font-weight:600;color:var(--ink);font-size:15px;
+  list-style:none}
+.faqs .faq summary::-webkit-details-marker{display:none}
+.faqs .faq summary::after{content:'+';float:right;color:var(--gold);font-weight:700}
+.faqs .faq[open] summary::after{content:'–'}
+.faqs .faq p{margin:10px 0 0;color:var(--ink-dim);font-size:14px;line-height:1.6}
 @media(max-width:560px){.row,.photos,.detail-photos{grid-template-columns:1fr}.tracklist{columns:1}}
 
 /* ------------------------------------------------------------- recherche */

@@ -26,7 +26,7 @@
       <div class="hero-inner">
         <div class="hero-txt">
           <h1 class="display">Vinylthèque</h1>
-          <p class="tagline">Votre collection. Votre passion.</p>
+          <p class="tagline">Votre collection de vinyles, enfin en ordre.</p>
           <p class="lede">Organisez, explorez et partagez votre bibliothèque de vinyles.
             Ajoutez vos disques d'après deux photos : les titres, l'artiste, l'année et le label
             se remplissent tout seuls.</p>
@@ -92,6 +92,11 @@
       <div id="home-recent" class="recent"></div>
     </section>
 
+    <section id="home-faq-sec" class="lightsec">
+      <h2 class="sechead">Questions fréquentes</h2>
+      <div id="home-faq" class="faqs"></div>
+    </section>
+
     <section class="ctaband">
       <div class="ctaband-inner">
         <span class="ctadisc" aria-hidden="true"></span>
@@ -102,6 +107,15 @@
         <button class="btn gold big" data-go="register">Créer un compte gratuit</button>
       </div>
     </section>
+  </section>
+
+  <!-- ==================================================== collections publiques -->
+  <section id="view-collections" class="view hidden">
+    <h2 class="sechead">Collections publiques</h2>
+    <p class="hint" style="text-align:center;max-width:640px;margin:0 auto 26px">
+      Les bibliothèques que leurs propriétaires ont choisi de rendre visibles.
+      Ouvrez-en une pour voir les pochettes, les artistes, les labels et le détail des titres.</p>
+    <div id="collections-list" class="colls"></div>
   </section>
 
   <!-- ================================================= connexion / compte -->
@@ -193,7 +207,14 @@
   </div>
 </div>
 
-<footer class="foot">Vinylthèque — titres reconnus par lecture de la pochette (OCR) et complétés par MusicBrainz.</footer>
+<footer class="foot">
+  <nav class="footnav">
+    <a href="/">Accueil</a>
+    <a href="/collections">Collections publiques</a>
+    <a href="/tarifs">Tarifs</a>
+  </nav>
+  <p>Vinylthèque — titres reconnus par lecture de la pochette (OCR) et complétés par MusicBrainz.</p>
+</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="/app.js"></script>
