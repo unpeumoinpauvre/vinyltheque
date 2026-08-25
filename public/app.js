@@ -4,7 +4,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { me: null, vinyls: [], filter: '', publicUser: null, billing: null };
+const state = { me: null, vinyls: [], filter: '', billing: null };
 
 async function api(url, opts = {}) {
   const res = await fetch(url, { credentials: 'same-origin', ...opts });
@@ -280,7 +280,7 @@ function renderNav() {
   const items = state.me
     ? [['/collection', 'Ma collection'], ['/recherche', 'Recherche'],
        ['/statistiques', 'Statistiques'], ['/abonnement', 'Abonnement']]
-    : [['/', 'Accueil'], ['/collections', 'Collections'], ['/tarifs', 'Tarifs']];
+    : [['/', 'Accueil'], ['/tarifs', 'Tarifs']];
   $('#mainnav').innerHTML = items
     .map(([href, label]) => `<a href="${href}" class="${p === href ? 'on' : ''}">${label}</a>`).join('');
   $$('#mainnav a').forEach((a) => a.onclick = (e) => { e.preventDefault(); go(a.getAttribute('href')); });
@@ -297,37 +297,6 @@ function renderUserbox() {
     $('#nav-login').onclick = () => openAuth('login');
   }
   renderNav();
-}
-
-/* ------------------------------------------------------- page d'accueil */
-
-async function loadRecent() {
-  const box = $('#home-recent');
-  if (box.dataset.done) return;
-  try {
-    const { vinyls } = await api('/api/recent');
-    box.dataset.done = '1';
-    const list = vinyls.slice(0, 6);          // six derniers albums, pas plus
-    box.innerHTML = list.length
-      ? list.map((v) => `<a class="rec" href="/u/${encodeURIComponent(v.owner || '')}">
-          <div class="cov" style="background-image:url('/api/vinyls/${v.id}/image/front')"></div>
-          <div class="m"><div class="t">${esc(v.title)}</div>
-            <div class="s">${esc(v.artist) || '—'}${v.year ? ' · ' + esc(v.year) : ''}</div></div>
-        </a>`).join('')
-      : `<p class="none">Aucune collection publique pour l'instant — la vôtre pourrait être la première.</p>`;
-  } catch { box.innerHTML = ''; }
-}
-
-async function loadCollections() {
-  const box = $('#collections-list');
-  try {
-    const { collections } = await api('/api/collections');
-    box.innerHTML = collections.length
-      ? collections.map((c) => `<a class="coll" href="/u/${encodeURIComponent(c.username)}">
-          <span class="cn">${esc(c.username)}</span>
-          <span class="cc">${c.n} vinyle${c.n > 1 ? 's' : ''}</span></a>`).join('')
-      : '<p class="none">Aucune collection publique pour le moment.</p>';
-  } catch { /* le HTML rendu par le serveur reste affiché */ }
 }
 
 function vinylCard(v) {
@@ -366,7 +335,7 @@ document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
 
 function showDetail(v) {
   if (!v) return;
-  const own = state.me && !state.publicUser;
+  const own = Boolean(state.me);
   openModal(`
     <h2 style="margin:0 4px 2px 0">${esc(v.title)}</h2>
     <div class="chips">
@@ -692,7 +661,7 @@ async function loadStats() {
 const PLANS = [
   { id: 'free', name: 'Gratuit', price: '0 €', per: 'pour toujours',
     features: ['LIMIT vinyles', 'Titres lus sur les photos', 'Recherche par album et par morceau',
-               'Statistiques', 'Page publique partageable'] },
+               'Statistiques', 'Collection strictement privée'] },
   { id: 'monthly', name: 'Pro mensuel', price: '5 €', unit: '/ mois', per: 'sans engagement',
     features: ['Collection <b>sans limite</b>', 'Toutes les fonctions du gratuit',
                'Résiliable en un clic'] },
@@ -862,47 +831,16 @@ function renderVerifyBanner() {
 
 async function loadMine() {
   const d = await api('/api/vinyls');
-  state.vinyls = d.vinyls; state.publicUser = null;
+  state.vinyls = d.vinyls;
   $('#collection-title').textContent = 'Ma collection';
-  const url = `${location.origin}/u/${state.me.username}`;
-  $('#share-line').classList.remove('hidden');
-  $('#share-line').innerHTML = `Page publique : <code>${esc(url)}</code>
-     <button class="btn ghost" id="copy">Copier le lien</button>
-     <label style="flex-direction:row;align-items:center;gap:6px;color:inherit">
-       <input type="checkbox" id="vis" ${state.me.is_public ? 'checked' : ''} style="width:auto"> visible publiquement
-     </label>`;
-  $('#copy').onclick = () => navigator.clipboard.writeText(url).then(() => $('#copy').textContent = 'Copié !');
-  $('#vis').onchange = async (e) => {
-    const r = await api('/api/me/visibility', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_public: e.target.checked })
-    });
-    state.me.is_public = r.is_public;
-  };
   renderVerifyBanner();
   await renderQuota();
-  renderGrid();
-}
-
-async function loadPublic(username) {
-  const d = await api('/api/u/' + encodeURIComponent(username));
-  state.vinyls = d.vinyls; state.publicUser = d.owner.username;
-  $('#collection-title').textContent = `Collection de ${d.owner.username}`;
-  $('#share-line').classList.add('hidden');
-  $('#btn-add').classList.add('hidden');
   renderGrid();
 }
 
 async function route() {
   const p = location.pathname;
   renderNav();
-  const m = p.match(/^\/u\/([^/]+)$/);
-  if (m) {
-    show('#view-collection');
-    try { await loadPublic(decodeURIComponent(m[1])); }
-    catch (e) { $('#grid').innerHTML = ''; $('#empty').textContent = e.message; $('#empty').classList.remove('hidden'); }
-    return;
-  }
   if (p === '/verifier') {
     const token = new URLSearchParams(location.search).get('token');
     try {
@@ -918,11 +856,6 @@ async function route() {
   }
   if (p === '/motdepasse') { show('#view-reset'); return; }
 
-  if (p === '/collections') {
-    show('#view-collections');
-    await loadCollections();
-    return;
-  }
   if (p === '/tarifs' || p === '/abonnement') {
     show('#view-pricing');
     await showPricing(p === '/abonnement' ? 'abonnement' : 'tarifs');
@@ -930,7 +863,7 @@ async function route() {
   }
   if (!state.me) {
     if (p === '/login') { show('#view-auth'); return; }
-    show('#view-home'); loadRecent(); renderPlans('#pricing-home'); return;
+    show('#view-home'); renderPlans('#pricing-home'); return;
   }
   if (p === '/statistiques') {
     show('#view-stats');
@@ -938,7 +871,7 @@ async function route() {
     return;
   }
   if (p === '/recherche') {
-    if (!state.vinyls.length || state.publicUser) await loadMine();
+    if (!state.vinyls.length) await loadMine();
     show('#view-search');
     renderSearch();
     $('#q').focus();

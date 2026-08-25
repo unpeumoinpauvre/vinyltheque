@@ -71,10 +71,10 @@
             vue d'un seul coup d'œil.</p>
         </article>
         <article>
-          <svg viewBox="0 0 48 48" class="ico"><circle cx="17" cy="16" r="7" fill="none" stroke-width="3"/><path d="M5 40c0-7 5.5-11 12-11s12 4 12 11" fill="none" stroke-width="3"/><circle cx="34" cy="18" r="6" fill="none" stroke-width="3" class="stroke-gold"/><path d="M31 29c6 0 12 3.5 12 11" fill="none" stroke-width="3" class="stroke-gold"/></svg>
-          <h3>Partagez</h3>
-          <p>Votre collection a sa propre adresse publique, à envoyer à qui vous voulez —
-            ou à garder privée d'une case à cocher.</p>
+          <svg viewBox="0 0 48 48" class="ico"><rect x="11" y="21" width="26" height="20" rx="3" fill="none" stroke-width="3"/><path d="M17 21v-6a7 7 0 0 1 14 0v6" fill="none" stroke-width="3" class="stroke-gold"/><circle cx="24" cy="30" r="2.6" class="fill-gold" stroke="none"/></svg>
+          <h3>Vous seul y accédez</h3>
+          <p>Votre collection reste privée : aucun autre utilisateur ni moteur de recherche
+            ne peut la consulter, et les photos sont nettoyées de leurs métadonnées.</p>
         </article>
       </div>
     </section>
@@ -82,14 +82,6 @@
     <section id="home-pricing" class="lightsec">
       <h2 class="sechead">Tarifs</h2>
       <div id="pricing-home" class="plans"></div>
-    </section>
-
-    <section class="lightsec">
-      <div class="sechead-row">
-        <h2>Ajouts récents</h2>
-        <span class="muted">Les derniers disques rangés sur le site</span>
-      </div>
-      <div id="home-recent" class="recent"></div>
     </section>
 
     <section id="home-faq-sec" class="lightsec">
@@ -107,15 +99,6 @@
         <button class="btn gold big" data-go="register">Créer un compte gratuit</button>
       </div>
     </section>
-  </section>
-
-  <!-- ==================================================== collections publiques -->
-  <section id="view-collections" class="view hidden">
-    <h2 class="sechead">Collections publiques</h2>
-    <p class="hint" style="text-align:center;max-width:640px;margin:0 auto 26px">
-      Les bibliothèques que leurs propriétaires ont choisi de rendre visibles.
-      Ouvrez-en une pour voir les pochettes, les artistes, les labels et le détail des titres.</p>
-    <div id="collections-list" class="colls"></div>
   </section>
 
   <!-- ================================================= connexion / compte -->
@@ -194,7 +177,6 @@
       <button id="btn-add" class="btn gold">+ Ajouter un vinyle</button>
     </div>
     <div id="verify-line" class="verify-line hidden"></div>
-    <div id="share-line" class="share-line hidden"></div>
     <div id="grid" class="grid"></div>
     <p id="empty" class="empty hidden">Aucun vinyle pour l'instant. Cliquez sur « Ajouter un vinyle ».</p>
   </section>
@@ -210,7 +192,6 @@
 <footer class="foot">
   <nav class="footnav">
     <a href="/">Accueil</a>
-    <a href="/collections">Collections publiques</a>
     <a href="/tarifs">Tarifs</a>
   </nav>
   <p>Vinylthèque — titres reconnus par lecture de la pochette (OCR) et complétés par MusicBrainz.</p>
