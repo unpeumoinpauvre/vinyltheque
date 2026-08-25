@@ -12,6 +12,7 @@ import { pool, initDb } from './db.js';
 import { signIn, signOut, readUser, requireAuth } from './auth.js';
 import { sendWelcome, sendReset, sendPasswordChanged, mailReady, baseUrl } from './mail.js';
 import { GUIDES, guideBySlug } from './guides.js';
+import { PAGES, pageBySlug } from './pages.js';
 import { mountBilling, mountStripeWebhook, FREE_LIMIT, billingReady, isPro, getUser, countVinyls }
   from './billing.js';
 
@@ -625,7 +626,14 @@ app.get('/guides/:slug', (req, res) => {
       ['<section id="view-guide" class="view hidden">', '<section id="view-guide" class="view">'],
       ['<div id="guide-body"></div>', `<div id="guide-body">${guideArticleHtml(g)}</div>`]
     ],
-    jsonld: {
+    jsonld: [{
+      '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Accueil', item: base + '/' },
+        { '@type': 'ListItem', position: 2, name: 'Guides', item: base + '/guides' },
+        { '@type': 'ListItem', position: 3, name: g.title, item: `${base}/guides/${g.slug}` }
+      ]
+    }, {
       '@context': 'https://schema.org', '@type': 'Article',
       headline: g.title,
       description: g.description,
@@ -638,7 +646,31 @@ app.get('/guides/:slug', (req, res) => {
         '@type': 'Organization', name: 'Vinylthèque',
         logo: { '@type': 'ImageObject', url: base + '/og.jpg' }
       }
-    }
+    }]
+  });
+});
+
+/* ------------------------------------------------- pages institutionnelles */
+
+const infoPageHtml = (pg) =>
+  `<article class="guide">
+     <h1>${attr(pg.title)}</h1>
+     ${pg.sections.map((sec) =>
+       `<section><h2>${attr(sec.h)}</h2>${sec.p
+         .map((t) => `<p>${t.replace('FREE_LIMIT', String(FREE_LIMIT))}</p>`).join('')}</section>`).join('')}
+   </article>`;
+
+app.get('/:slug', (req, res, next) => {
+  const pg = pageBySlug(clean(req.params.slug, 60));
+  if (!pg) return next();
+  renderPage(req, res, {
+    title: `${pg.title} — Vinylthèque`,
+    description: pg.description,
+    indexable: pg.indexable,
+    inject: [
+      ['<section id="view-guide" class="view hidden">', '<section id="view-guide" class="view">'],
+      ['<div id="guide-body"></div>', `<div id="guide-body">${infoPageHtml(pg)}</div>`]
+    ]
   });
 });
 
@@ -670,6 +702,8 @@ app.get('/sitemap.xml', async (req, res) => {
     `  <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
     `  <url><loc>${base}/guides</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>`,
     `  <url><loc>${base}/tarifs</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`]
+    .concat(PAGES.filter((pg) => pg.indexable).map((pg) =>
+      `  <url><loc>${base}/${pg.slug}</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>`))
     .concat(GUIDES.map((g) =>
       `  <url><loc>${base}/guides/${g.slug}</loc><lastmod>${g.updated}</lastmod>`
       + `<changefreq>monthly</changefreq><priority>0.7</priority></url>`));
@@ -681,6 +715,36 @@ ${urls.join('\n')}
 });
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
+/* Dernier recours : une adresse inconnue renvoyait la page d'erreur brute
+   d'Express (« Cannot GET /… »), un cul-de-sac pour le visiteur comme pour
+   les moteurs. Le code reste 404, mais la page propose une sortie. */
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Ressource introuvable.' });
+
+  const body = `<article class="guide notfound">
+      <h1>Page introuvable</h1>
+      <p class="guide-lede">L'adresse <code>${attr(req.path)}</code> ne correspond à aucune page.
+        Elle a peut-être été renommée, ou le lien qui vous a amené ici comporte une faute.</p>
+      <p>Voici par où continuer :</p>
+      <ul class="nf-links">
+        <li><a href="/">La page d'accueil</a></li>
+        <li><a href="/guides">Les guides du collectionneur</a></li>
+        <li><a href="/tarifs">Les tarifs</a></li>
+      </ul>
+    </article>`;
+
+  res.status(404);
+  renderPage(req, res, {
+    title: 'Page introuvable — Vinylthèque',
+    description: "Cette adresse ne correspond à aucune page de Vinylthèque.",
+    indexable: false,
+    inject: [
+      ['<section id="view-guide" class="view hidden">', '<section id="view-guide" class="view">'],
+      ['<div id="guide-body"></div>', `<div id="guide-body">${body}</div>`]
+    ]
+  });
+});
 
 const port = process.env.PORT || 3000;
 initDb()
