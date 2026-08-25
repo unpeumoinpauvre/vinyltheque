@@ -320,7 +320,7 @@ app.get('/api/vinyls/:id/image/:kind', async (req, res) => {
 
 app.get('/api/recent', async (_req, res) => {
   const { rows } = await pool.query(
-    `SELECT v.id, v.title, v.artist, v.year
+    `SELECT v.id, v.title, v.artist, v.year, u.username AS owner
        FROM vinyls v
        JOIN users u ON u.id = v.user_id
       WHERE u.is_public = TRUE
@@ -428,6 +428,27 @@ app.get('/api/lookup', async (req, res) => {
 
 mountBilling(app, { requireAuth, baseUrl });
 
+/* ------------------------------------------------------ collections publiques */
+
+/* Les pages /u/... n'etaient reliees a rien : Google les voyait dans le
+   sitemap mais aucune page du site n'y menait, ce qui suffit a les laisser
+   « detectees, non indexees ». Cette liste leur donne une page d'origine. */
+async function publicCollections() {
+  const { rows } = await pool.query(
+    `SELECT u.username, count(v.id)::int AS n, max(v.created_at) AS updated
+       FROM users u JOIN vinyls v ON v.user_id = u.id
+      WHERE u.is_public = TRUE
+   GROUP BY u.username
+   ORDER BY count(v.id) DESC, u.username`
+  );
+  return rows;
+}
+
+app.get('/api/collections', async (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json({ collections: await publicCollections() });
+});
+
 /* ---------------------------------------------- pages, robots, sitemap */
 
 const INDEX_PATH = path.join(__dirname, '..', 'public', 'index.html');
@@ -456,7 +477,8 @@ function renderPage(req, res, opts = {}) {
     .replace(/<meta name="description" content="[^"]*">/,
              `<meta name="description" content="${attr(description)}">`);
 
-  const jsonld = opts.jsonld ? `\n<script type="application/ld+json">${JSON.stringify(opts.jsonld)}</script>` : '';
+  const jsonld = (opts.jsonld ? [].concat(opts.jsonld) : [])
+    .map((o) => `\n<script type="application/ld+json">${JSON.stringify(o)}</script>`).join('');
 
   html = html.replace('</head>', `<link rel="canonical" href="${attr(url)}">
 <meta name="robots" content="${indexable ? 'index,follow,max-image-preview:large' : 'noindex,follow'}">
@@ -472,6 +494,10 @@ function renderPage(req, res, opts = {}) {
 <meta name="twitter:card" content="summary_large_image">${jsonld}
 </head>`);
 
+  /* Certaines pages sont écrites dans le HTML servi, pour que leur contenu
+     existe même si le JavaScript n'est jamais exécuté. */
+  for (const [needle, replacement] of opts.inject || []) html = html.replace(needle, replacement);
+
   /* Pour un visiteur non connecté — donc pour les robots — la page d'accueil
      est déjà visible dans le HTML, sans attendre l'exécution du JavaScript. */
   if (opts.showHome) {
@@ -481,10 +507,46 @@ function renderPage(req, res, opts = {}) {
   res.set('Content-Type', 'text/html; charset=utf-8').send(html);
 }
 
+/* Les mêmes questions servent au texte de la page et au balisage structuré :
+   deux sources séparées finiraient par diverger. */
+const FAQ = [
+  ['Comment les titres des morceaux se remplissent-ils tout seuls ?',
+   "Vous photographiez le recto et le verso du disque. Vinylthèque lit la pochette "
+   + "(reconnaissance de caractères) directement dans votre navigateur, puis complète "
+   + "l'artiste, l'année, le label et la liste des pistes à partir de MusicBrainz."],
+  ['Puis-je savoir sur quel vinyle se trouve un morceau ?',
+   "Oui. L'onglet Recherche cherche à la fois dans les noms d'albums, les artistes, "
+   + "les labels et les titres de pistes : vous tapez un morceau, Vinylthèque vous dit "
+   + "sur quel disque et sur quelle face il se trouve."],
+  ['Ma collection est-elle publique ?',
+   "Vous choisissez. Chaque compte dispose d'une adresse publique du type "
+   + "vinyltheque.com/u/votrenom, que vous pouvez désactiver d'une case à cocher pour "
+   + "garder la collection privée."],
+  ["Que deviennent les photos que j'envoie ?",
+   "Elles sont recadrées sur la pochette et réencodées avant publication : toutes les "
+   + "métadonnées, y compris la localisation et le modèle d'appareil, sont supprimées."],
+  ['Combien ça coûte ?',
+   `C'est gratuit jusqu'à ${FREE_LIMIT} vinyles. Au-delà, l'abonnement Pro coûte 5 € par `
+   + "mois ou 50 € par an, soit deux mois offerts, et se résilie en un clic."]
+];
+
+const faqJsonLd = () => ({
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: FAQ.map(([q, a]) => ({
+    '@type': 'Question', name: q,
+    acceptedAnswer: { '@type': 'Answer', text: a }
+  }))
+});
+
+const faqHtml = () => FAQ.map(([q, a]) =>
+  `<details class="faq"><summary>${attr(q)}</summary><p>${attr(a)}</p></details>`).join('\n');
+
 app.get('/', (req, res) => renderPage(req, res, {
   canonical: baseUrl(req) + '/',
   showHome: !req.user,
-  jsonld: {
+  inject: [['<div id="home-faq" class="faqs"></div>', `<div id="home-faq" class="faqs">${faqHtml()}</div>`]],
+  jsonld: [{
     '@context': 'https://schema.org',
     '@type': 'WebApplication',
     name: 'Vinylthèque',
@@ -493,8 +555,47 @@ app.get('/', (req, res) => renderPage(req, res, {
     inLanguage: 'fr',
     description: DEFAULT_DESC,
     offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' }
-  }
+  }, faqJsonLd()]
 }));
+
+app.get('/collections', async (req, res) => {
+  const rows = await publicCollections();
+  const base = baseUrl(req);
+  const list = rows.length
+    ? rows.map((r) =>
+        `<a class="coll" href="/u/${encodeURIComponent(r.username)}">`
+        + `<span class="cn">${attr(r.username)}</span>`
+        + `<span class="cc">${r.n} vinyle${r.n > 1 ? 's' : ''}</span></a>`).join('')
+    : '<p class="none">Aucune collection publique pour le moment.</p>';
+
+  renderPage(req, res, {
+    title: 'Collections de vinyles publiques — Vinylthèque',
+    description: "Parcourez les collections de vinyles partagées sur Vinylthèque : "
+      + 'pochettes, artistes, labels et listes de titres, disque par disque.',
+    inject: [
+      ['<section id="view-collections" class="view hidden">',
+       '<section id="view-collections" class="view">'],
+      ['<div id="collections-list" class="colls"></div>',
+       `<div id="collections-list" class="colls">${list}</div>`]
+    ],
+    jsonld: {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: 'Collections de vinyles publiques',
+      url: base + '/collections',
+      inLanguage: 'fr',
+      mainEntity: {
+        '@type': 'ItemList',
+        numberOfItems: rows.length,
+        itemListElement: rows.slice(0, 100).map((r, i) => ({
+          '@type': 'ListItem', position: i + 1,
+          name: `Collection de ${r.username}`,
+          url: `${base}/u/${encodeURIComponent(r.username)}`
+        }))
+      }
+    }
+  });
+});
 
 app.get('/u/:username', async (req, res) => {
   const username = clean(req.params.username, 32).toLowerCase();
@@ -507,10 +608,42 @@ app.get('/u/:username', async (req, res) => {
   if (!o || !o.is_public) {
     return renderPage(req, res, { title: 'Collection privée — Vinylthèque', indexable: false });
   }
+  /* Le contenu du disque est rendu par le navigateur ; ce balisage donne aux
+     moteurs la liste des albums sans attendre l'exécution du JavaScript. */
+  const { rows: albums } = await pool.query(
+    `SELECT v.title, v.artist, v.year
+       FROM vinyls v JOIN users u ON u.id = v.user_id
+      WHERE u.username = $1
+   ORDER BY v.created_at DESC
+      LIMIT 200`, [username]
+  );
+  const base = baseUrl(req);
+
   renderPage(req, res, {
     title: `Collection de ${o.username} — ${o.n} vinyle${o.n > 1 ? 's' : ''} · Vinylthèque`,
     description: `Les ${o.n} vinyles de la collection de ${o.username} : pochettes, artistes, `
-      + `labels et listes de titres, sur Vinylthèque.`
+      + `labels et listes de titres, sur Vinylthèque.`,
+    jsonld: {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: `Collection de ${o.username}`,
+      url: `${base}/u/${encodeURIComponent(o.username)}`,
+      inLanguage: 'fr',
+      mainEntity: {
+        '@type': 'ItemList',
+        numberOfItems: o.n,
+        itemListElement: albums.map((a, i) => ({
+          '@type': 'ListItem',
+          position: i + 1,
+          item: {
+            '@type': 'MusicAlbum',
+            name: a.title,
+            ...(a.artist ? { byArtist: { '@type': 'MusicGroup', name: a.artist } } : {}),
+            ...(a.year ? { datePublished: String(a.year) } : {})
+          }
+        }))
+      }
+    }
   });
 });
 
@@ -545,6 +678,7 @@ app.get('/sitemap.xml', async (req, res) => {
   );
   const urls = [
     `  <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+    `  <url><loc>${base}/collections</loc><changefreq>daily</changefreq><priority>0.9</priority></url>`,
     `  <url><loc>${base}/tarifs</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`]
     .concat(rows.map((r) =>
       `  <url><loc>${base}/u/${encodeURIComponent(r.username)}</loc>`
