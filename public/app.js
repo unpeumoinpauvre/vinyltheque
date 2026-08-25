@@ -310,7 +310,7 @@ function renderNav() {
      page au lieu de la router côté client, sinon leur texte n'existerait pas. */
   $$('#mainnav a').forEach((a) => {
     const href = a.getAttribute('href');
-    if (href.startsWith('/guides')) return;
+    if (href.startsWith('/guides')) return;   // page écrite par le serveur
     a.onclick = (e) => { e.preventDefault(); go(href); };
   });
 }
@@ -892,7 +892,12 @@ async function route() {
   const p = location.pathname;
   renderNav();
   if (p === '/guides') { show('#view-guides'); return; }
-  if (p.startsWith('/guides/')) { show('#view-guide'); return; }
+  /* Guides, pages institutionnelles et 404 : le contenu est déjà écrit dans le
+     HTML par le serveur, on se contente d'afficher la vue correspondante. */
+  if (p.startsWith('/guides/') || $('#guide-body')?.children.length) {
+    show('#view-guide');
+    return;
+  }
 
   if (p === '/verifier') {
     const token = new URLSearchParams(location.search).get('token');

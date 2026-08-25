@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vinylthèque — votre collection de vinyles</title>
 <meta name="description" content="Organisez, explorez et partagez votre bibliothèque de vinyles. Deux photos par disque et les titres remplis automatiquement.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/oswald-latin-700-normal.woff2" crossorigin>
 <link rel="stylesheet" href="/style.css">
 <link rel="preload" as="image" href="/hero.webp" fetchpriority="high">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23151517'/><circle cx='16' cy='16' r='9' fill='none' stroke='%23555'/><circle cx='16' cy='16' r='4' fill='%23d9a94a'/></svg>">
@@ -24,6 +22,8 @@
   <!-- ============================================ page d'accueil publique -->
   <section id="view-home" class="view hidden">
     <div class="hero">
+      <img class="hero-img" src="/hero.webp" width="1536" height="1024" fetchpriority="high"
+           alt="Platine vinyle posée près d'une pile de disques, un 33 tours sur le plateau">
       <div class="hero-inner">
         <div class="hero-txt">
           <h1 class="display">Vinylthèque</h1>
@@ -216,6 +216,10 @@
     <a href="/">Accueil</a>
     <a href="/guides">Guides</a>
     <a href="/tarifs">Tarifs</a>
+    <a href="/a-propos">À propos</a>
+    <a href="/mentions-legales">Mentions légales</a>
+    <a href="/confidentialite">Confidentialité</a>
+    <a href="/conditions">Conditions</a>
   </nav>
   <p>Vinylthèque — titres reconnus par lecture de la pochette (OCR) et complétés par MusicBrainz.</p>
 </footer>

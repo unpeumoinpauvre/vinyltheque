@@ -1,3 +1,12 @@
+/* Police auto-hébergée (Oswald, licence SIL OFL) : ni connexion à un service
+   tiers, ni feuille de style externe bloquant le premier affichage. */
+@font-face{font-family:'Oswald';font-style:normal;font-weight:500;font-display:swap;
+  src:url('/fonts/oswald-latin-500-normal.woff2') format('woff2')}
+@font-face{font-family:'Oswald';font-style:normal;font-weight:600;font-display:swap;
+  src:url('/fonts/oswald-latin-600-normal.woff2') format('woff2')}
+@font-face{font-family:'Oswald';font-style:normal;font-weight:700;font-display:swap;
+  src:url('/fonts/oswald-latin-700-normal.woff2') format('woff2')}
+
 :root{
   --bg:#111015; --bg2:#17161b; --card:#1c1b21; --line:#2c2b33;
   --txt:#eceaea; --dim:#9a97a0;
@@ -51,9 +60,10 @@ body.home .foot{background:#15130f}
 /* =============================================== page d'accueil : héros */
 .hero{position:relative;overflow:hidden;background:#100e0c;
   border-bottom:1px solid #241f18;padding:66px 20px 128px}
-/* photo de la platine, ancrée à droite */
-.hero::before{content:'';position:absolute;inset:0;
-  background:url('/hero.webp') no-repeat center 62%;background-size:cover}
+/* photo de la platine : une vraie image, donc indexable et décrite pour les
+   lecteurs d'écran, au lieu d'un fond CSS invisible des moteurs */
+.hero-img{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;object-position:center 62%;border:0}
 /* voile sombre pour que le texte reste lisible par-dessus */
 .hero::after{content:'';position:absolute;inset:0;background:
   linear-gradient(90deg,#100e0c 0%,rgba(16,14,12,.93) 20%,rgba(16,14,12,.78) 38%,
@@ -223,6 +233,8 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
 .guide h1{font-family:Oswald,system-ui,sans-serif;font-size:34px;line-height:1.15;margin:0 0 8px;
   text-transform:uppercase;letter-spacing:.5px}
 .guide .guide-date{margin:0 0 18px;font-size:12.5px;color:var(--ink-dim)}
+/* pages sans chapô : le premier sous-titre ne doit pas coller au titre */
+.guide h1 + section{margin-top:22px}
 .guide .guide-lede{font-size:17px;line-height:1.7;color:var(--ink);margin:0 0 26px}
 .guide section{margin:0 0 24px}
 .guide h2{font-family:Oswald,system-ui,sans-serif;font-size:21px;letter-spacing:.3px;
@@ -321,3 +333,12 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
 .quota{font-size:13px;color:var(--dim);white-space:nowrap}
 .quota b{color:var(--txt)}
 .quota.full b{color:var(--gold)}
+
+/* --- pages institutionnelles et 404 --- */
+.guide .todo{background:#ffe9a8;color:#5a4300;padding:1px 6px;border-radius:4px;
+  font-size:14px;font-weight:600}
+.guide code{background:#eae4da;padding:1px 6px;border-radius:4px;font-size:14px}
+.guide .nf-links{margin:0;padding:0 0 0 18px}
+.guide .nf-links li{margin:0 0 6px;font-size:15.5px}
+.guide .nf-links a{color:var(--gold-deep);border-bottom:1px solid transparent}
+.guide .nf-links a:hover{border-bottom-color:var(--gold-deep)}
