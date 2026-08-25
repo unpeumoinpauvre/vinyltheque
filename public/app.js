@@ -4,7 +4,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { me: null, vinyls: [], filter: '', publicUser: null };
+const state = { me: null, vinyls: [], filter: '', publicUser: null, billing: null };
 
 async function api(url, opts = {}) {
   const res = await fetch(url, { credentials: 'same-origin', ...opts });
@@ -278,8 +278,9 @@ async function ocrLines(file, onProgress) {
 function renderNav() {
   const p = location.pathname;
   const items = state.me
-    ? [['/collection', 'Ma collection'], ['/recherche', 'Recherche'], ['/statistiques', 'Statistiques']]
-    : [['/', 'Accueil']];
+    ? [['/collection', 'Ma collection'], ['/recherche', 'Recherche'],
+       ['/statistiques', 'Statistiques'], ['/abonnement', 'Abonnement']]
+    : [['/', 'Accueil'], ['/tarifs', 'Tarifs']];
   $('#mainnav').innerHTML = items
     .map(([href, label]) => `<a href="${href}" class="${p === href ? 'on' : ''}">${label}</a>`).join('');
   $$('#mainnav a').forEach((a) => a.onclick = (e) => { e.preventDefault(); go(a.getAttribute('href')); });
@@ -566,7 +567,14 @@ function showForm(v = null) {
       await api(v ? `/api/vinyls/${v.id}` : '/api/vinyls',
         { method: v ? 'PUT' : 'POST', body: fd });
       closeModal(); await loadMine();
-    } catch (err) { $('#f-error').textContent = err.message; btn.disabled = false; }
+    } catch (err) {
+      const plein = /gratuite est complète/i.test(err.message);
+      $('#f-error').innerHTML = esc(err.message)
+        + (plein ? ' <button type="button" class="linky" id="go-pro">Voir les offres</button>' : '');
+      const g = $('#go-pro');
+      if (g) g.onclick = () => { closeModal(); go('/tarifs'); };
+      btn.disabled = false;
+    }
   };
 }
 
@@ -667,6 +675,120 @@ async function loadStats() {
     </div>`;
 }
 
+/* ---------------------------------------------------- tarifs & abonnement */
+
+const PLANS = [
+  { id: 'free', name: 'Gratuit', price: '0 €', per: 'pour toujours',
+    features: ['LIMIT vinyles', 'Titres lus sur les photos', 'Recherche par album et par morceau',
+               'Statistiques', 'Page publique partageable'] },
+  { id: 'monthly', name: 'Pro mensuel', price: '5 €', unit: '/ mois', per: 'sans engagement',
+    features: ['Collection <b>sans limite</b>', 'Toutes les fonctions du gratuit',
+               'Résiliable en un clic'] },
+  { id: 'yearly', name: 'Pro annuel', price: '50 €', unit: '/ an', per: 'soit 4,17 € par mois',
+    best: 'Deux mois offerts',
+    features: ['Collection <b>sans limite</b>', 'Toutes les fonctions du gratuit',
+               '<b>2 mois offerts</b> par rapport au mensuel'] }
+];
+
+async function loadBilling(force) {
+  if (state.billing && !force) return state.billing;
+  try { state.billing = await api('/api/billing/status'); } catch { state.billing = null; }
+  return state.billing;
+}
+
+function planCard(p, b) {
+  const pro = b?.plan === 'pro';
+  const limit = b?.limit ?? 25;
+  let label, action, cls = 'btn', disabled = '';
+
+  if (p.id === 'free') {
+    label = pro ? 'Inclus' : (state.me ? 'Votre offre actuelle' : 'Créer un compte');
+    action = state.me ? '' : 'register';
+    if (state.me) { disabled = 'disabled'; cls = 'btn ghost'; }
+  } else if (pro) {
+    label = b.interval === p.id ? 'Votre abonnement' : 'Changer pour cette offre';
+    action = 'portal';
+    cls = b.interval === p.id ? 'btn ghost' : 'btn';
+  } else {
+    label = state.me ? "S'abonner" : 'Créer un compte';
+    action = state.me ? p.id : 'register';
+    cls = p.best ? 'btn gold' : 'btn';
+  }
+
+  return `<article class="plan${p.best ? ' best' : ''}">
+    ${p.best ? `<span class="badge">${esc(p.best)}</span>` : ''}
+    <h3>${esc(p.name)}</h3>
+    <div class="price">${esc(p.price)}${p.unit ? `<small>${esc(p.unit)}</small>` : ''}</div>
+    <div class="per">${esc(p.per)}</div>
+    <ul>${p.features.map((f) => `<li>${f.replace('LIMIT', `Jusqu'à <b>${limit}</b>`)}</li>`).join('')}</ul>
+    <button class="${cls}" data-plan="${action}" ${disabled}>${esc(label)}</button>
+  </article>`;
+}
+
+async function renderPlans(sel) {
+  const box = $(sel);
+  if (!box) return;
+  const b = await loadBilling();
+  box.innerHTML = PLANS.map((p) => planCard(p, b)).join('');
+  $$(`${sel} [data-plan]`).forEach((btn) => btn.onclick = () => startPlan(btn));
+}
+
+async function startPlan(btn) {
+  const what = btn.dataset.plan;
+  const msg = $('#pricing-msg');
+  if (!what) return;
+  if (what === 'register') return openAuth('register');
+
+  btn.disabled = true;
+  const before = btn.textContent;
+  btn.textContent = 'Ouverture…';
+  if (msg) msg.textContent = '';
+  try {
+    const path = what === 'portal' ? '/api/billing/portal' : '/api/billing/checkout';
+    const d = await api(path, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interval: what })
+    });
+    location.href = d.url;                     // page de paiement hébergée par Stripe
+  } catch (e) {
+    if (msg) msg.textContent = e.message;
+    btn.disabled = false; btn.textContent = before;
+  }
+}
+
+async function showPricing(mode) {
+  const b = await loadBilling(true);
+  const pro = b?.plan === 'pro';
+  $('#pricing-title').textContent = mode === 'abonnement' ? 'Mon abonnement' : 'Tarifs';
+
+  const st = $('#pricing-status');
+  const params = new URLSearchParams(location.search);
+  let note = '';
+  if (params.get('paiement') === 'ok') {
+    note = '<span class="ok">Merci ! Votre abonnement est actif. '
+      + "S'il n'apparaît pas encore, patientez quelques secondes puis rechargez.</span>";
+  } else if (params.get('paiement') === 'annule') {
+    note = 'Paiement abandonné — rien n\'a été débité.';
+  } else if (pro && b.renewsAt) {
+    const d = new Date(b.renewsAt).toLocaleDateString('fr-FR');
+    note = b.cancels
+      ? `Abonnement ${b.interval === 'yearly' ? 'annuel' : 'mensuel'} — actif jusqu'au ${d}, sans renouvellement.`
+      : `Abonnement ${b.interval === 'yearly' ? 'annuel' : 'mensuel'} — prochain prélèvement le ${d}.`;
+  } else if (state.me && b) {
+    note = `Vous avez <b>${b.count}</b> disque${b.count > 1 ? 's' : ''} sur les <b>${b.limit}</b> du compte gratuit.`;
+  }
+  st.innerHTML = note;
+  st.classList.toggle('hidden', !note);
+
+  if (b && !b.ready) {
+    $('#pricing-msg').textContent =
+      "L'abonnement n'est pas encore ouvert : les offres sont affichées à titre indicatif.";
+  } else {
+    $('#pricing-msg').textContent = '';
+  }
+  await renderPlans('#pricing-page');
+}
+
 /* ----------------------------------------------------------- navigation */
 
 async function openAuth(tab) {
@@ -679,6 +801,23 @@ function show(view) {
   $$('.view').forEach((v) => v.classList.add('hidden'));
   $(view).classList.remove('hidden');
   document.body.classList.toggle('home', view === '#view-home');
+}
+
+async function renderQuota() {
+  const b = await loadBilling(true);
+  let el = $('#quota');
+  if (!el) {
+    el = document.createElement('span');
+    el.id = 'quota';
+    $('.toolbar').insertBefore(el, $('#btn-add'));
+  }
+  if (!b || b.plan === 'pro') { el.className = 'quota'; el.innerHTML = '<b>Pro</b> · sans limite'; return; }
+  const reste = b.limit - b.count;
+  el.className = 'quota' + (reste <= 5 ? ' full' : '');
+  el.innerHTML = `<b>${b.count}/${b.limit}</b> disques`
+    + (reste <= 5 ? ` · <a href="/tarifs" id="quota-link">passer en Pro</a>` : '');
+  const a = $('#quota-link');
+  if (a) a.onclick = (e) => { e.preventDefault(); go('/tarifs'); };
 }
 
 function renderVerifyBanner() {
@@ -717,6 +856,7 @@ async function loadMine() {
     state.me.is_public = r.is_public;
   };
   renderVerifyBanner();
+  await renderQuota();
   renderGrid();
 }
 
@@ -754,9 +894,14 @@ async function route() {
   }
   if (p === '/motdepasse') { show('#view-reset'); return; }
 
+  if (p === '/tarifs' || p === '/abonnement') {
+    show('#view-pricing');
+    await showPricing(p === '/abonnement' ? 'abonnement' : 'tarifs');
+    return;
+  }
   if (!state.me) {
     if (p === '/login') { show('#view-auth'); return; }
-    show('#view-home'); loadRecent(); return;
+    show('#view-home'); loadRecent(); renderPlans('#pricing-home'); return;
   }
   if (p === '/statistiques') {
     show('#view-stats');

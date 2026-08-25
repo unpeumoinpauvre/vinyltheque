@@ -243,3 +243,34 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
   .mainnav{order:3;flex-basis:100%;gap:16px}
   .userbox{margin-left:auto}
 }
+
+/* ------------------------------------------------------------- tarifs */
+.plans{max-width:1000px;margin:0 auto;display:grid;gap:20px;
+  grid-template-columns:repeat(auto-fit,minmax(250px,1fr));align-items:stretch}
+.plan{background:#fff;border:1px solid #e6e0d7;border-radius:14px;padding:24px;
+  display:flex;flex-direction:column;position:relative}
+.plans.dark .plan{background:var(--card);border-color:var(--line)}
+.plan.best{border-color:var(--gold);box-shadow:0 0 0 2px rgba(217,169,74,.28)}
+.plan .badge{position:absolute;top:-11px;left:50%;transform:translateX(-50%);
+  background:var(--gold);color:#1b1814;font-size:11.5px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;padding:4px 12px;border-radius:999px;white-space:nowrap}
+.plan h3{font-family:var(--display);text-transform:uppercase;letter-spacing:.05em;
+  font-size:16px;margin:0 0 10px;color:var(--ink)}
+.plans.dark .plan h3{color:var(--txt)}
+.plan .price{font-family:var(--display);font-size:40px;line-height:1;color:var(--ink)}
+.plans.dark .plan .price{color:#fff}
+.plan .price small{font-size:15px;font-weight:400;color:var(--ink-dim);margin-left:4px}
+.plans.dark .plan .price small{color:var(--dim)}
+.plan .per{font-size:13px;color:var(--ink-dim);margin:6px 0 16px;min-height:20px}
+.plans.dark .plan .per{color:var(--dim)}
+.plan ul{list-style:none;padding:0;margin:0 0 20px;flex:1}
+.plan li{font-size:14px;color:var(--ink-dim);padding:5px 0 5px 22px;position:relative}
+.plans.dark .plan li{color:var(--dim)}
+.plan li::before{content:'✓';position:absolute;left:0;color:var(--gold);font-weight:700}
+.plan li.no::before{content:'—';color:#b9b2a8}
+.plan .btn{width:100%;justify-content:center;text-align:center}
+.pricing-status{max-width:1000px;margin:-14px auto 26px;text-align:center;
+  color:var(--dim);font-size:14px}
+.quota{font-size:13px;color:var(--dim);white-space:nowrap}
+.quota b{color:var(--txt)}
+.quota.full b{color:var(--gold)}
