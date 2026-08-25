@@ -705,6 +705,12 @@ function planCard(p, b) {
     label = pro ? 'Inclus' : (state.me ? 'Votre offre actuelle' : 'Créer un compte');
     action = state.me ? '' : 'register';
     if (state.me) { disabled = 'disabled'; cls = 'btn ghost'; }
+  } else if (b?.vip) {
+    /* Compte offert : rien à payer, et pas de portail Stripe à ouvrir. */
+    label = 'Inclus';
+    action = '';
+    disabled = 'disabled';
+    cls = 'btn ghost';
   } else if (pro) {
     label = b.interval === p.id ? 'Votre abonnement' : 'Changer pour cette offre';
     action = 'portal';
@@ -769,6 +775,8 @@ async function showPricing(mode) {
       + "S'il n'apparaît pas encore, patientez quelques secondes puis rechargez.</span>";
   } else if (params.get('paiement') === 'annule') {
     note = 'Paiement abandonné — rien n\'a été débité.';
+  } else if (b?.vip) {
+    note = 'Compte offert — collection sans limite, rien à payer.';
   } else if (pro && b.renewsAt) {
     const d = new Date(b.renewsAt).toLocaleDateString('fr-FR');
     note = b.cancels
@@ -811,7 +819,11 @@ async function renderQuota() {
     el.id = 'quota';
     $('.toolbar').insertBefore(el, $('#btn-add'));
   }
-  if (!b || b.plan === 'pro') { el.className = 'quota'; el.innerHTML = '<b>Pro</b> · sans limite'; return; }
+  if (!b || b.plan === 'pro') {
+    el.className = 'quota';
+    el.innerHTML = b?.vip ? '<b>Compte offert</b> · sans limite' : '<b>Pro</b> · sans limite';
+    return;
+  }
   const reste = b.limit - b.count;
   el.className = 'quota' + (reste <= 5 ? ' full' : '');
   el.innerHTML = `<b>${b.count}/${b.limit}</b> disques`
