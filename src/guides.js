@@ -269,6 +269,187 @@ export const GUIDES = [
       }
     ]
   }
+,
+
+  {
+    slug: 'assurer-sa-collection-de-vinyles',
+    title: 'Assurer sa collection de vinyles',
+    description: "Ce que demande un assureur en cas de sinistre, comment constituer l'inventaire "
+      + 'qui fera foi, et les erreurs qui font refuser une indemnisation.',
+    updated: '2026-08-25',
+    lede: "Dégât des eaux, incendie, cambriolage : le jour où ça arrive, l'assureur ne demande pas "
+      + "combien vous estimez votre collection, il demande de quoi elle était faite. Et une liste "
+      + 'reconstituée de mémoire après le sinistre ne vaut pas grand-chose.',
+    sections: [
+      {
+        h: 'Le problème du plafond',
+        p: ["Une collection de disques n'est presque jamais couverte comme telle par un contrat "
+          + "d'assurance habitation standard. Elle tombe dans le mobilier ordinaire, souvent avec "
+          + 'un plafond global et parfois une limite par objet. Trois cents disques à trente euros '
+          + 'pièce dépassent vite ce que le contrat prévoit sans le dire.',
+          'La plupart des contrats prévoient une catégorie « objets de valeur » ou « collections », '
+          + 'soumise à déclaration au-delà d\'un certain montant. Lisez la vôtre : c\'est le seul '
+          + 'document qui compte, et il diffère d\'un assureur à l\'autre.']
+      },
+      {
+        h: 'Ce qui fait preuve, ce qui ne fait pas preuve',
+        p: ['Un assureur indemnise ce que vous pouvez démontrer avoir possédé. En pratique, il '
+          + 'accepte des factures d\'achat, des photographies datées, une estimation faite par un '
+          + 'professionnel, et un inventaire tenu avant le sinistre.',
+          "Ce qui ne suffit pas : une liste tapée après coup, un souvenir approximatif, une capture "
+          + "d'écran d'un site de cotation sans lien avec vos exemplaires. Un disque n'a de valeur "
+          + 'que par son pressage et son état — c\'est votre exemplaire qu\'il faut documenter, pas '
+          + 'l\'album en général.']
+      },
+      {
+        h: 'L\'inventaire qui tient',
+        p: ["Pour chaque disque, quatre éléments suffisent : une photo du recto, une photo du "
+          + 'verso, les informations d\'identification (titre, artiste, année, label) et, pour les '
+          + 'pièces qui comptent, les gravures du sillon de sortie qui identifient le pressage '
+          + 'exact.',
+          "L'essentiel est que l'inventaire soit <strong>antérieur</strong> au sinistre et "
+          + "<strong>hors des murs</strong>. Un classeur papier rangé à côté des bacs brûle avec "
+          + 'eux ; un fichier sur l\'ordinateur du salon disparaît avec l\'ordinateur. Un '
+          + 'inventaire en ligne, lui, survit à la maison.']
+      },
+      {
+        h: 'Le tenir sans y passer ses soirées',
+        p: ['Personne ne photographie trois cents pochettes en une fois. La méthode qui fonctionne '
+          + 'est celle des guides précédents : commencez par les pièces qui ont le plus de valeur, '
+          + 'puis saisissez chaque nouvelle acquisition le jour où elle entre chez vous.',
+          "C'est précisément ce que fait Vinylthèque : deux photos, et les informations "
+          + "d'identification se remplissent seules. Votre collection reste privée — elle n'est "
+          + 'consultable que depuis votre compte — mais elle existe ailleurs que chez vous.']
+      },
+      {
+        h: 'Une précaution',
+        p: ["Je ne suis pas courtier en assurance et ce guide ne remplace pas la lecture de votre "
+          + 'contrat. Avant de vous croire couvert, appelez votre assureur, demandez le plafond '
+          + 'applicable aux collections et ce qu\'il exige comme justificatif. La réponse tient en '
+          + 'cinq minutes et évite une très mauvaise surprise.']
+      }
+    ]
+  },
+
+  {
+    slug: 'estimer-la-valeur-d-un-vinyle',
+    title: 'Estimer la valeur d\'un disque vinyle',
+    description: 'Pourquoi deux exemplaires du même album valent dix fois moins l\'un que l\'autre, '
+      + 'et comment lire une cote sans se tromper de disque.',
+    updated: '2026-08-25',
+    lede: "La question « combien vaut cet album ? » n'a pas de réponse. La bonne question est "
+      + '« combien vaut <em>cet exemplaire</em> ? » — et l\'écart entre les deux se compte souvent '
+      + 'en centaines d\'euros.',
+    sections: [
+      {
+        h: 'Trois facteurs, dans cet ordre',
+        p: ['<strong>Le pressage</strong> d\'abord. Une édition d\'origine et une réédition des '
+          + 'années 2010 portent le même titre, la même pochette, parfois le même numéro de '
+          + 'catalogue — et pas du tout le même prix. Tant que vous n\'avez pas identifié votre '
+          + 'pressage, toute estimation est une loterie.',
+          "<strong>L'état</strong> ensuite, celui du disque et celui de la pochette, notés "
+          + "séparément. Le barème employé par les collectionneurs va de Mint (neuf, jamais joué) à "
+          + 'Poor. Entre un exemplaire Near Mint et le même en Very Good, le prix peut être divisé '
+          + 'par trois.',
+          '<strong>La rareté réelle</strong> enfin, qui n\'est pas la rareté ressentie. Un album '
+          + 'culte tiré à des millions d\'exemplaires ne vaut presque rien ; un disque oublié tiré '
+          + 'à cinq cents peut valoir cher.']
+      },
+      {
+        h: 'Identifier le pressage avant de chercher un prix',
+        p: ["C'est l'étape que tout le monde saute, et c'est celle qui détermine le résultat. "
+          + 'Vérifiez la présence d\'un code-barres, le graphisme de l\'étiquette centrale, le pays '
+          + 'de fabrication, et surtout les numéros de matrice gravés dans le sillon de sortie.',
+          'Nos deux guides détaillent la méthode : « Reconnaître un premier pressage » et « Lire '
+          + 'les gravures du sillon de sortie ».']
+      },
+      {
+        h: 'Lire une cote correctement',
+        p: ['Les bases de données de collectionneurs affichent des fourchettes de prix constatés. '
+          + "Deux pièges : on regarde le prix <strong>demandé</strong> par des vendeurs plutôt que "
+          + 'le prix <strong>réellement payé</strong>, et on compare son exemplaire à une autre '
+          + 'édition.',
+          'Fiez-vous aux ventes conclues, sur une période récente, et pour un état comparable au '
+          + 'vôtre. Une seule vente exceptionnelle ne fait pas un prix de marché.']
+      },
+      {
+        h: 'Ce qui fait chuter un prix',
+        p: ["Une pochette écrite au stylo, un autocollant de disquaire arraché en emportant le "
+          + 'carton, un disque voilé, un insert manquant — encart, poster, feuillet de paroles. '
+          + 'Beaucoup d\'acheteurs considèrent qu\'un exemplaire incomplet n\'est plus le même '
+          + 'objet.',
+          'À l\'inverse, un exemplaire scellé d\'origine se vend plus cher — mais la question de '
+          + 'son authenticité se pose, le rescellage existe.']
+      },
+      {
+        h: 'Quand faire estimer par un professionnel',
+        p: ["Pour un disque isolé, une base de collectionneurs suffit. Pour une collection entière, "
+          + "pour une succession ou pour une déclaration d'assurance, une estimation écrite par un "
+          + 'disquaire spécialisé ou un commissaire-priseur a une valeur que votre propre calcul '
+          + "n'aura jamais.",
+          'Dans les deux cas, l\'inventaire photographié est le point de départ : sans lui, '
+          + "personne ne peut estimer quoi que ce soit à distance."]
+      }
+    ]
+  },
+
+  {
+    slug: 'vendre-une-collection-heritee',
+    title: 'Vendre une collection de vinyles héritée',
+    description: 'Vous récupérez les disques d\'un parent et vous ne connaissez rien au vinyle : '
+      + 'les étapes, dans l\'ordre, pour ne pas brader ce qui a de la valeur.',
+    updated: '2026-08-25',
+    lede: "On vous a laissé six cartons de disques. Vous n'y connaissez rien, un acheteur propose "
+      + "de tout reprendre en bloc pour deux cents euros et de vous débarrasser. C'est souvent une "
+      + 'très mauvaise affaire — et il y a une manière simple de le savoir avant de dire oui.',
+    sections: [
+      {
+        h: 'Ne vendez pas en bloc avant d\'avoir regardé',
+        p: ["L'achat au lot est le moyen le plus courant de faire une bonne affaire sur le dos de "
+          + "quelqu'un qui ignore ce qu'il possède. Dans une collection de plusieurs centaines de "
+          + 'disques, la valeur est presque toujours concentrée dans quelques dizaines d\'entre '
+          + 'eux : le reste se vend au poids.',
+          'Vous n\'avez pas besoin de devenir expert. Vous avez besoin de repérer les vingt ou '
+          + 'trente disques qui portent la valeur.']
+      },
+      {
+        h: 'Première passe : trier grossièrement',
+        p: ["Mettez de côté ce qui sort de l'ordinaire : les pochettes ouvrantes, les coffrets, les "
+          + 'disques avec encarts ou posters, les pressages étrangers, les albums que vous ne '
+          + 'connaissez pas du tout — les valeurs se cachent plus souvent dans le jazz, le rock '
+          + 'progressif, le funk rare ou les pressages japonais que dans les grands succès de '
+          + 'variété que tout le monde possédait.',
+          'Écartez sans état d\'âme les disques rayés, voilés ou aux pochettes détrempées : leur '
+          + 'valeur marchande est proche de zéro quel que soit le titre.']
+      },
+      {
+        h: 'Deuxième passe : documenter',
+        p: ['Photographiez le recto et le verso de chaque disque mis de côté, et notez les '
+          + 'gravures du sillon de sortie pour les plus prometteurs. C\'est ce dossier qui vous '
+          + 'permettra de demander plusieurs avis sans transporter les cartons, et de comparer les '
+          + 'offres sur la même base.',
+          'Un inventaire photographié sert aussi en cas de succession partagée entre héritiers : '
+          + 'il évite les discussions sur ce qui était dans les cartons.']
+      },
+      {
+        h: 'Troisième passe : faire estimer, plusieurs fois',
+        p: ['Demandez au moins trois avis : un disquaire spécialisé en occasion, une plateforme de '
+          + 'vente entre collectionneurs, et si l\'ensemble paraît important, un '
+          + 'commissaire-priseur. Les écarts entre ces trois canaux sont considérables.',
+          'Vendre soi-même rapporte davantage mais demande du temps, un emballage sérieux et la '
+          + 'gestion des litiges. Vendre en bloc à un professionnel rapporte moins mais règle tout '
+          + "en une fois. Le bon choix dépend de ce que vous préférez dépenser : du temps ou de "
+          + 'l\'argent.']
+      },
+      {
+        h: 'Et si vous gardez',
+        p: ["Rien ne vous oblige à vendre. Beaucoup de gens découvrent la collection d'un parent, "
+          + "la cataloguent, et finissent par en garder une partie. Dans ce cas, l'inventaire que "
+          + 'vous venez de constituer devient votre point de départ — et vous saurez au moins ce '
+          + 'que vous avez décidé de garder.']
+      }
+    ]
+  }
 ];
 
 export const guideBySlug = (slug) => GUIDES.find((g) => g.slug === slug);

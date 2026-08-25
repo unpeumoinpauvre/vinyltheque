@@ -2,13 +2,13 @@
    conditions de vente.
 
    Elles sont écrites côté serveur, comme les guides, pour exister sans
-   JavaScript. Les informations que je n'ai pas — adresse postale, numéro
-   d'immatriculation, adresse de contact — sont marquées À COMPLÉTER plutôt
-   qu'inventées : une mention légale fausse est pire qu'une mention absente. */
+   JavaScript. Ce que je n'ai pas pu vérifier reste marqué À COMPLÉTER plutôt
+   qu'inventé : une mention légale fausse est pire qu'une mention absente. */
 
 const TODO = (quoi) => `<mark class="todo">[à compléter : ${quoi}]</mark>`;
 
 export const SOCIETE = 'Kollector, LLC';
+export const ADRESSE = '131 Continental Drive, Suite 305, Newark, DE 19713, États-Unis';
 export const CONTACT = TODO('adresse e-mail de contact');
 
 export const PAGES = [
@@ -56,17 +56,20 @@ export const PAGES = [
     sections: [
       {
         h: 'Éditeur du site',
-        p: [`Le site vinyltheque.com est édité par <strong>${SOCIETE}</strong>.`,
-          `Siège social : ${TODO('adresse postale complète')}.`,
-          `Immatriculation : ${TODO('numéro d\'immatriculation et État de constitution')}.`,
-          `Directeur de la publication : ${TODO('nom du responsable de la publication')}.`,
+        p: [`Le site vinyltheque.com est édité par <strong>${SOCIETE}</strong>, société à `
+          + `responsabilité limitée (<i>limited liability company</i>) constituée selon le droit `
+          + `de l'État du Delaware, États-Unis.`,
+          `Siège social : ${ADRESSE}.`,
+          `Numéro de dossier au registre du Delaware : ${TODO('file number du Delaware')}.`,
+          'Directeur de la publication : le représentant légal de Kollector, LLC.',
           `Contact : ${CONTACT}.`]
       },
       {
         h: 'Hébergement',
-        p: ["Le site est hébergé par Railway Corp., 80 Bogart Street, Brooklyn, NY 11206, "
-          + "États-Unis. Le nom de domaine est enregistré auprès d'OVH SAS, 2 rue Kellermann, "
-          + '59100 Roubaix, France, et la résolution DNS est assurée par Cloudflare, Inc.']
+        p: ["Le site est hébergé par Railway Corp., société de droit américain "
+          + `(railway.com) — adresse postale : ${TODO('adresse de Railway, à relever sur railway.com/legal')}.`,
+          "Le nom de domaine est enregistré auprès d'OVH SAS, 2 rue Kellermann, 59100 Roubaix, "
+          + 'France, et la résolution DNS est assurée par Cloudflare, Inc.']
       },
       {
         h: 'Propriété intellectuelle',
@@ -199,9 +202,12 @@ export const PAGES = [
       },
       {
         h: 'Droit applicable',
-        p: [`Les présentes conditions sont soumises au droit ${TODO('droit applicable et juridiction compétente')}. `
-          + "Un consommateur conserve en tout état de cause le bénéfice des dispositions "
-          + 'impératives de son pays de résidence.']
+        p: ["Les présentes conditions sont soumises au droit de l'État du Delaware, États-Unis, "
+          + "État de constitution de la société éditrice.",
+          'Cette désignation ne prive pas le consommateur des dispositions impératives de son pays '
+          + 'de résidence : un consommateur résidant dans l\'Union européenne conserve en toute '
+          + 'hypothèse le bénéfice des protections que lui accorde son droit national, et peut '
+          + 'saisir les juridictions de son domicile.']
       }
     ]
   }
