@@ -311,6 +311,34 @@ app.get('/api/vinyls/:id/image/:kind', async (req, res) => {
   res.send(img.data);
 });
 
+/* ------------------------------------------------------------ statistiques */
+
+app.get('/api/stats', requireAuth, async (req, res) => {
+  const u = [req.user.id];
+  const [tot, dec, art, lab] = await Promise.all([
+    pool.query(`SELECT count(*)::int AS disques,
+                       coalesce(sum(jsonb_array_length(tracks)),0)::int AS titres,
+                       count(*) FILTER (WHERE artist <> '')::int AS avec_artiste
+                  FROM vinyls WHERE user_id = $1`, u),
+    pool.query(`SELECT (left(year,3) || '0') AS decennie, count(*)::int AS n
+                  FROM vinyls
+                 WHERE user_id = $1 AND year ~ '^(19|20)[0-9]{2}$'
+              GROUP BY 1 ORDER BY 1`, u),
+    pool.query(`SELECT artist, count(*)::int AS n FROM vinyls
+                 WHERE user_id = $1 AND artist <> ''
+              GROUP BY 1 ORDER BY n DESC, artist LIMIT 6`, u),
+    pool.query(`SELECT label, count(*)::int AS n FROM vinyls
+                 WHERE user_id = $1 AND label <> ''
+              GROUP BY 1 ORDER BY n DESC, label LIMIT 6`, u)
+  ]);
+  res.json({
+    total: tot.rows[0],
+    decennies: dec.rows,
+    artistes: art.rows,
+    labels: lab.rows
+  });
+});
+
 /* ------------------------------------------- accueil : ajouts récents */
 
 /* Six derniers disques ajoutés sur le site, sans jamais dire à qui ils sont :
