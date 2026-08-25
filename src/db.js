@@ -23,7 +23,7 @@ export async function initDb() {
       email         TEXT UNIQUE NOT NULL,
       username      TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      is_public     BOOLEAN NOT NULL DEFAULT TRUE,
+      is_public     BOOLEAN NOT NULL DEFAULT FALSE,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
@@ -52,6 +52,8 @@ export async function initDb() {
 
     -- vérification d'adresse et réinitialisation de mot de passe.
     -- On ne stocke que le SHA-256 des jetons, jamais le jeton lui-même.
+    ALTER TABLE users ALTER COLUMN is_public SET DEFAULT FALSE;
+    UPDATE users SET is_public = FALSE WHERE is_public;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS verify_hash    TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS verify_expires TIMESTAMPTZ;

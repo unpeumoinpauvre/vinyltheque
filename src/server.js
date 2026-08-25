@@ -161,12 +161,6 @@ app.get('/api/me', async (req, res) => {
   res.json({ user: u, mail: mailReady(), billing: billingReady(), limit: FREE_LIMIT });
 });
 
-app.post('/api/me/visibility', requireAuth, async (req, res) => {
-  const isPublic = !!req.body.is_public;
-  await pool.query('UPDATE users SET is_public = $1 WHERE id = $2', [isPublic, req.user.id]);
-  res.json({ is_public: isPublic });
-});
-
 /* --------------------------------------- vérification & mot de passe oublié */
 
 app.get('/api/verify', async (req, res) => {
@@ -303,74 +297,18 @@ app.delete('/api/vinyls/:id', requireAuth, async (req, res) => {
 app.get('/api/vinyls/:id/image/:kind', async (req, res) => {
   const kind = req.params.kind === 'back' ? 'back' : 'front';
   const { rows } = await pool.query(
-    `SELECT i.mime, i.data, u.is_public, v.user_id
-       FROM images i JOIN vinyls v ON v.id = i.vinyl_id JOIN users u ON u.id = v.user_id
+    `SELECT i.mime, i.data, v.user_id
+       FROM images i JOIN vinyls v ON v.id = i.vinyl_id
       WHERE i.vinyl_id = $1 AND i.kind = $2`,
     [Number(req.params.id), kind]
   );
   const img = rows[0];
   if (!img) return res.status(404).end();
-  if (!img.is_public && req.user?.id !== img.user_id) return res.status(403).end();
+  /* Une pochette n'appartient qu'à son propriétaire : personne d'autre ne la voit. */
+  if (req.user?.id !== img.user_id) return res.status(403).end();
   res.set('Content-Type', img.mime);
   res.set('Cache-Control', 'public, max-age=86400');
   res.send(img.data);
-});
-
-/* ------------------------------------------- accueil : ajouts récents */
-
-app.get('/api/recent', async (_req, res) => {
-  const { rows } = await pool.query(
-    `SELECT v.id, v.title, v.artist, v.year, u.username AS owner
-       FROM vinyls v
-       JOIN users u ON u.id = v.user_id
-      WHERE u.is_public = TRUE
-        AND EXISTS (SELECT 1 FROM images i WHERE i.vinyl_id = v.id AND i.kind = 'front')
-      ORDER BY v.created_at DESC
-      LIMIT 6`
-  );
-  res.set('Cache-Control', 'public, max-age=120');
-  res.json({ vinyls: rows });
-});
-
-/* ------------------------------------------------------------ statistiques */
-
-app.get('/api/stats', requireAuth, async (req, res) => {
-  const u = [req.user.id];
-  const [tot, dec, art, lab] = await Promise.all([
-    pool.query(`SELECT count(*)::int AS disques,
-                       coalesce(sum(jsonb_array_length(tracks)),0)::int AS titres,
-                       count(*) FILTER (WHERE artist <> '')::int AS avec_artiste
-                  FROM vinyls WHERE user_id = $1`, u),
-    pool.query(`SELECT (left(year,3) || '0') AS decennie, count(*)::int AS n
-                  FROM vinyls
-                 WHERE user_id = $1 AND year ~ '^(19|20)[0-9]{2}$'
-              GROUP BY 1 ORDER BY 1`, u),
-    pool.query(`SELECT artist, count(*)::int AS n FROM vinyls
-                 WHERE user_id = $1 AND artist <> ''
-              GROUP BY 1 ORDER BY n DESC, artist LIMIT 6`, u),
-    pool.query(`SELECT label, count(*)::int AS n FROM vinyls
-                 WHERE user_id = $1 AND label <> ''
-              GROUP BY 1 ORDER BY n DESC, label LIMIT 6`, u)
-  ]);
-  res.json({
-    total: tot.rows[0],
-    decennies: dec.rows,
-    artistes: art.rows,
-    labels: lab.rows
-  });
-});
-
-/* --------------------------------------------------- collection publique */
-
-app.get('/api/u/:username', async (req, res) => {
-  const username = clean(req.params.username, 32).toLowerCase();
-  const { rows } = await pool.query('SELECT id, username, is_public FROM users WHERE username = $1', [username]);
-  const owner = rows[0];
-  if (!owner) return res.status(404).json({ error: 'Collection introuvable.' });
-  if (!owner.is_public && req.user?.id !== owner.id) {
-    return res.status(403).json({ error: 'Cette collection est privée.' });
-  }
-  res.json({ owner: { username: owner.username }, vinyls: await listVinyls(owner.id) });
 });
 
 /* -------------------------------------- recherche de titres (MusicBrainz) */
@@ -427,27 +365,6 @@ app.get('/api/lookup', async (req, res) => {
 /* ---------------------------------------------------------------- pages */
 
 mountBilling(app, { requireAuth, baseUrl });
-
-/* ------------------------------------------------------ collections publiques */
-
-/* Les pages /u/... n'etaient reliees a rien : Google les voyait dans le
-   sitemap mais aucune page du site n'y menait, ce qui suffit a les laisser
-   « detectees, non indexees ». Cette liste leur donne une page d'origine. */
-async function publicCollections() {
-  const { rows } = await pool.query(
-    `SELECT u.username, count(v.id)::int AS n, max(v.created_at) AS updated
-       FROM users u JOIN vinyls v ON v.user_id = u.id
-      WHERE u.is_public = TRUE
-   GROUP BY u.username
-   ORDER BY count(v.id) DESC, u.username`
-  );
-  return rows;
-}
-
-app.get('/api/collections', async (_req, res) => {
-  res.set('Cache-Control', 'public, max-age=300');
-  res.json({ collections: await publicCollections() });
-});
 
 /* ---------------------------------------------- pages, robots, sitemap */
 
@@ -518,10 +435,9 @@ const FAQ = [
    "Oui. L'onglet Recherche cherche à la fois dans les noms d'albums, les artistes, "
    + "les labels et les titres de pistes : vous tapez un morceau, Vinylthèque vous dit "
    + "sur quel disque et sur quelle face il se trouve."],
-  ['Ma collection est-elle publique ?',
-   "Vous choisissez. Chaque compte dispose d'une adresse publique du type "
-   + "vinyltheque.com/u/votrenom, que vous pouvez désactiver d'une case à cocher pour "
-   + "garder la collection privée."],
+  ['Ma collection est-elle visible par les autres ?',
+   "Non. Une collection n'est consultable que par la personne connectée à son compte : "
+   + "aucun autre utilisateur, et aucun moteur de recherche, n'y a accès."],
   ["Que deviennent les photos que j'envoie ?",
    "Elles sont recadrées sur la pochette et réencodées avant publication : toutes les "
    + "métadonnées, y compris la localisation et le modèle d'appareil, sont supprimées."],
@@ -558,94 +474,9 @@ app.get('/', (req, res) => renderPage(req, res, {
   }, faqJsonLd()]
 }));
 
-app.get('/collections', async (req, res) => {
-  const rows = await publicCollections();
-  const base = baseUrl(req);
-  const list = rows.length
-    ? rows.map((r) =>
-        `<a class="coll" href="/u/${encodeURIComponent(r.username)}">`
-        + `<span class="cn">${attr(r.username)}</span>`
-        + `<span class="cc">${r.n} vinyle${r.n > 1 ? 's' : ''}</span></a>`).join('')
-    : '<p class="none">Aucune collection publique pour le moment.</p>';
-
-  renderPage(req, res, {
-    title: 'Collections de vinyles publiques — Vinylthèque',
-    description: "Parcourez les collections de vinyles partagées sur Vinylthèque : "
-      + 'pochettes, artistes, labels et listes de titres, disque par disque.',
-    inject: [
-      ['<section id="view-collections" class="view hidden">',
-       '<section id="view-collections" class="view">'],
-      ['<div id="collections-list" class="colls"></div>',
-       `<div id="collections-list" class="colls">${list}</div>`]
-    ],
-    jsonld: {
-      '@context': 'https://schema.org',
-      '@type': 'CollectionPage',
-      name: 'Collections de vinyles publiques',
-      url: base + '/collections',
-      inLanguage: 'fr',
-      mainEntity: {
-        '@type': 'ItemList',
-        numberOfItems: rows.length,
-        itemListElement: rows.slice(0, 100).map((r, i) => ({
-          '@type': 'ListItem', position: i + 1,
-          name: `Collection de ${r.username}`,
-          url: `${base}/u/${encodeURIComponent(r.username)}`
-        }))
-      }
-    }
-  });
-});
-
-app.get('/u/:username', async (req, res) => {
-  const username = clean(req.params.username, 32).toLowerCase();
-  const { rows } = await pool.query(
-    `SELECT u.username, u.is_public, count(v.id)::int AS n
-       FROM users u LEFT JOIN vinyls v ON v.user_id = u.id
-      WHERE u.username = $1 GROUP BY u.username, u.is_public`, [username]
-  );
-  const o = rows[0];
-  if (!o || !o.is_public) {
-    return renderPage(req, res, { title: 'Collection privée — Vinylthèque', indexable: false });
-  }
-  /* Le contenu du disque est rendu par le navigateur ; ce balisage donne aux
-     moteurs la liste des albums sans attendre l'exécution du JavaScript. */
-  const { rows: albums } = await pool.query(
-    `SELECT v.title, v.artist, v.year
-       FROM vinyls v JOIN users u ON u.id = v.user_id
-      WHERE u.username = $1
-   ORDER BY v.created_at DESC
-      LIMIT 200`, [username]
-  );
-  const base = baseUrl(req);
-
-  renderPage(req, res, {
-    title: `Collection de ${o.username} — ${o.n} vinyle${o.n > 1 ? 's' : ''} · Vinylthèque`,
-    description: `Les ${o.n} vinyles de la collection de ${o.username} : pochettes, artistes, `
-      + `labels et listes de titres, sur Vinylthèque.`,
-    jsonld: {
-      '@context': 'https://schema.org',
-      '@type': 'CollectionPage',
-      name: `Collection de ${o.username}`,
-      url: `${base}/u/${encodeURIComponent(o.username)}`,
-      inLanguage: 'fr',
-      mainEntity: {
-        '@type': 'ItemList',
-        numberOfItems: o.n,
-        itemListElement: albums.map((a, i) => ({
-          '@type': 'ListItem',
-          position: i + 1,
-          item: {
-            '@type': 'MusicAlbum',
-            name: a.title,
-            ...(a.artist ? { byArtist: { '@type': 'MusicGroup', name: a.artist } } : {}),
-            ...(a.year ? { datePublished: String(a.year) } : {})
-          }
-        }))
-      }
-    }
-  });
-});
+/* Les collections ne sont plus consultables par personne d'autre que leur
+   propriétaire : les anciennes adresses de partage renvoient à l'accueil. */
+app.get('/u/:username', (_req, res) => res.redirect(301, '/'));
 
 app.get('/tarifs', (req, res) => renderPage(req, res, {
   title: 'Tarifs — Vinylthèque',
@@ -662,6 +493,8 @@ app.get('/robots.txt', (req, res) => {
 `User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /u/
+Disallow: /collection
 
 Sitemap: ${baseUrl(req)}/sitemap.xml
 `);
@@ -669,21 +502,9 @@ Sitemap: ${baseUrl(req)}/sitemap.xml
 
 app.get('/sitemap.xml', async (req, res) => {
   const base = baseUrl(req);
-  const { rows } = await pool.query(
-    `SELECT u.username, max(v.created_at) AS updated
-       FROM users u JOIN vinyls v ON v.user_id = u.id
-      WHERE u.is_public = TRUE
-   GROUP BY u.username
-   ORDER BY u.username`
-  );
   const urls = [
     `  <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
-    `  <url><loc>${base}/collections</loc><changefreq>daily</changefreq><priority>0.9</priority></url>`,
-    `  <url><loc>${base}/tarifs</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`]
-    .concat(rows.map((r) =>
-      `  <url><loc>${base}/u/${encodeURIComponent(r.username)}</loc>`
-      + `<lastmod>${new Date(r.updated).toISOString().slice(0, 10)}</lastmod>`
-      + `<changefreq>weekly</changefreq><priority>0.7</priority></url>`));
+    `  <url><loc>${base}/tarifs</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`];
   res.type('application/xml').send(
 `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
