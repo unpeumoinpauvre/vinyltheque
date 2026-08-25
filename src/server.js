@@ -11,10 +11,13 @@ import fs from 'node:fs';
 import { pool, initDb } from './db.js';
 import { signIn, signOut, readUser, requireAuth } from './auth.js';
 import { sendWelcome, sendReset, sendPasswordChanged, mailReady, baseUrl } from './mail.js';
+import { mountBilling, mountStripeWebhook, FREE_LIMIT, billingReady, isPro, getUser, countVinyls }
+  from './billing.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set('trust proxy', 1);
+mountStripeWebhook(app, express);
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 app.use(readUser);
@@ -151,8 +154,11 @@ app.post('/api/logout', (req, res) => { signOut(res); res.json({ ok: true }); })
 app.get('/api/me', async (req, res) => {
   if (!req.user) return res.json({ user: null });
   const { rows } = await pool.query(
-    'SELECT id, username, email, is_public, email_verified FROM users WHERE id = $1', [req.user.id]);
-  res.json({ user: rows[0] ?? null, mail: mailReady() });
+    `SELECT id, username, email, is_public, email_verified, plan, plan_renews_at
+       FROM users WHERE id = $1`, [req.user.id]);
+  const u = rows[0] ?? null;
+  if (u) u.pro = isPro(u);
+  res.json({ user: u, mail: mailReady(), billing: billingReady(), limit: FREE_LIMIT });
 });
 
 app.post('/api/me/visibility', requireAuth, async (req, res) => {
@@ -251,6 +257,19 @@ app.post('/api/vinyls', requireAuth, photoFields, async (req, res) => {
   const title = clean(b.title);
   if (!title) return res.status(400).json({ error: "Le nom du vinyle est obligatoire." });
   try {
+    /* Plafond du compte gratuit. 402 : le client sait qu'il doit proposer
+       l'abonnement plutôt qu'afficher une erreur technique. */
+    const me = await getUser(req.user.id);
+    if (!isPro(me)) {
+      const n = await countVinyls(req.user.id);
+      if (n >= FREE_LIMIT) {
+        return res.status(402).json({
+          error: `Votre collection gratuite est complète (${FREE_LIMIT} disques). `
+            + `Passez à Vinylthèque Pro pour en ajouter autant que vous voulez.`,
+          limit: FREE_LIMIT, count: n
+        });
+      }
+    }
     const { rows } = await pool.query(
       `INSERT INTO vinyls (user_id, title, artist, year, label, notes, tracks)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
@@ -407,6 +426,8 @@ app.get('/api/lookup', async (req, res) => {
 
 /* ---------------------------------------------------------------- pages */
 
+mountBilling(app, { requireAuth, baseUrl });
+
 /* ---------------------------------------------- pages, robots, sitemap */
 
 const INDEX_PATH = path.join(__dirname, '..', 'public', 'index.html');
@@ -493,7 +514,14 @@ app.get('/u/:username', async (req, res) => {
   });
 });
 
-app.get(['/login', '/collection', '/recherche', '/verifier', '/motdepasse', '/statistiques'],
+app.get('/tarifs', (req, res) => renderPage(req, res, {
+  title: 'Tarifs — Vinylthèque',
+  description: `Gratuit jusqu'à ${FREE_LIMIT} vinyles, puis 5 € par mois ou 50 € par an `
+    + `(deux mois offerts) pour une collection sans limite.`
+}));
+
+app.get(['/login', '/collection', '/recherche', '/verifier', '/motdepasse', '/statistiques',
+         '/abonnement'],
   (req, res) => renderPage(req, res, { indexable: false }));
 
 app.get('/robots.txt', (req, res) => {
@@ -515,7 +543,9 @@ app.get('/sitemap.xml', async (req, res) => {
    GROUP BY u.username
    ORDER BY u.username`
   );
-  const urls = [`  <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`]
+  const urls = [
+    `  <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+    `  <url><loc>${base}/tarifs</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`]
     .concat(rows.map((r) =>
       `  <url><loc>${base}/u/${encodeURIComponent(r.username)}</loc>`
       + `<lastmod>${new Date(r.updated).toISOString().slice(0, 10)}</lastmod>`

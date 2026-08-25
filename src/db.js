@@ -59,6 +59,17 @@ export async function initDb() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires  TIMESTAMPTZ;
     CREATE INDEX IF NOT EXISTS idx_users_verify ON users(verify_hash);
     CREATE INDEX IF NOT EXISTS idx_users_reset  ON users(reset_hash);
+
+    -- abonnement : 'free' jusqu'au plafond, 'pro' sans limite.
+    -- plan_renews_at sert de filet : si un webhook Stripe se perd, l'accès
+    -- reste ouvert jusqu'à cette date au lieu de se couper brutalement.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS plan               TEXT NOT NULL DEFAULT 'free';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_id    TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_interval      TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_renews_at     TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_cancels       BOOLEAN NOT NULL DEFAULT FALSE;
+    CREATE INDEX IF NOT EXISTS idx_users_stripe ON users(stripe_customer_id);
   `);
   console.log('Schéma de base de données prêt.');
 }
