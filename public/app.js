@@ -299,6 +299,27 @@ function renderUserbox() {
   renderNav();
 }
 
+/* ------------------------------------------------------- page d'accueil */
+
+/* Les vignettes ne portent aucun lien ni aucun nom : on voit ce qui vient
+   d'être ajouté au site, jamais à qui cela appartient. */
+async function loadRecent() {
+  const box = $('#home-recent');
+  if (!box || box.dataset.done) return;
+  try {
+    const { vinyls } = await api('/api/recent');
+    box.dataset.done = '1';
+    const list = vinyls.slice(0, 6);          // six derniers albums, pas plus
+    box.innerHTML = list.length
+      ? list.map((v) => `<div class="rec">
+          <div class="cov" style="background-image:url('/api/recent/${v.id}/cover')"></div>
+          <div class="m"><div class="t">${esc(v.title)}</div>
+            <div class="s">${esc(v.artist) || '—'}${v.year ? ' · ' + esc(v.year) : ''}</div></div>
+        </div>`).join('')
+      : `<p class="none">Aucun disque pour l'instant — le vôtre pourrait être le premier.</p>`;
+  } catch { box.innerHTML = ''; }
+}
+
 function vinylCard(v) {
   const cover = v.has_front
     ? `style="background-image:url('/api/vinyls/${v.id}/image/front')"`
@@ -863,7 +884,7 @@ async function route() {
   }
   if (!state.me) {
     if (p === '/login') { show('#view-auth'); return; }
-    show('#view-home'); renderPlans('#pricing-home'); return;
+    show('#view-home'); loadRecent(); renderPlans('#pricing-home'); return;
   }
   if (p === '/statistiques') {
     show('#view-stats');
