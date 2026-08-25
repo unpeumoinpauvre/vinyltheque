@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
+<link rel="preload" as="image" href="/hero.webp" fetchpriority="high">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23151517'/><circle cx='16' cy='16' r='9' fill='none' stroke='%23555'/><circle cx='16' cy='16' r='4' fill='%23d9a94a'/></svg>">
 </head>
 <body>
@@ -109,6 +110,19 @@
     </section>
   </section>
 
+  <!-- ============================================================== guides -->
+  <section id="view-guides" class="view hidden">
+    <h2 class="sechead">Guides</h2>
+    <p class="hint" style="text-align:center;max-width:620px;margin:0 auto 26px">
+      Cataloguer, dater, nettoyer, conserver : ce qu'il faut savoir quand une collection
+      dépasse la centaine de disques.</p>
+    <div id="guides-list" class="guides"></div>
+  </section>
+
+  <section id="view-guide" class="view hidden">
+    <div id="guide-body"></div>
+  </section>
+
   <!-- ================================================= connexion / compte -->
   <section id="view-auth" class="view hidden">
     <div class="card auth-card">
@@ -200,12 +214,12 @@
 <footer class="foot">
   <nav class="footnav">
     <a href="/">Accueil</a>
+    <a href="/guides">Guides</a>
     <a href="/tarifs">Tarifs</a>
   </nav>
   <p>Vinylthèque — titres reconnus par lecture de la pochette (OCR) et complétés par MusicBrainz.</p>
 </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

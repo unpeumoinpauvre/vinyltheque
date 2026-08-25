@@ -253,7 +253,30 @@ async function prepare(file) {
   return cv;
 }
 
+/* Le lecteur de pochettes pèse près d'un mégaoctet : il ne se télécharge
+   qu'au moment où l'on ajoute vraiment une photo, pas sur chaque page. */
+const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+let tesseractLoading = null;
+
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  if (!tesseractLoading) {
+    tesseractLoading = new Promise((resolve, reject) => {
+      const tag = document.createElement('script');
+      tag.src = TESSERACT_URL;
+      tag.onload = resolve;
+      tag.onerror = () => {
+        tesseractLoading = null;
+        reject(new Error("Le lecteur de pochettes n'a pas pu être chargé. Vérifiez votre connexion."));
+      };
+      document.head.appendChild(tag);
+    });
+  }
+  return tesseractLoading;
+}
+
 async function ocrLines(file, onProgress) {
+  await loadTesseract();
   const source = await prepare(file);
   const worker = await Tesseract.createWorker(['fra', 'eng'], 1, {
     logger: (m) => m.status === 'recognizing text' && onProgress(Math.round(m.progress * 100))
@@ -280,10 +303,16 @@ function renderNav() {
   const items = state.me
     ? [['/collection', 'Ma collection'], ['/recherche', 'Recherche'],
        ['/statistiques', 'Statistiques'], ['/abonnement', 'Abonnement']]
-    : [['/', 'Accueil'], ['/tarifs', 'Tarifs']];
+    : [['/', 'Accueil'], ['/guides', 'Guides'], ['/tarifs', 'Tarifs']];
   $('#mainnav').innerHTML = items
     .map(([href, label]) => `<a href="${href}" class="${p === href ? 'on' : ''}">${label}</a>`).join('');
-  $$('#mainnav a').forEach((a) => a.onclick = (e) => { e.preventDefault(); go(a.getAttribute('href')); });
+  /* Les guides sont écrits par le serveur : on laisse le navigateur charger la
+     page au lieu de la router côté client, sinon leur texte n'existerait pas. */
+  $$('#mainnav a').forEach((a) => {
+    const href = a.getAttribute('href');
+    if (href.startsWith('/guides')) return;
+    a.onclick = (e) => { e.preventDefault(); go(href); };
+  });
 }
 
 function renderUserbox() {
@@ -862,6 +891,9 @@ async function loadMine() {
 async function route() {
   const p = location.pathname;
   renderNav();
+  if (p === '/guides') { show('#view-guides'); return; }
+  if (p.startsWith('/guides/')) { show('#view-guide'); return; }
+
   if (p === '/verifier') {
     const token = new URLSearchParams(location.search).get('token');
     try {
