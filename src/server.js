@@ -311,6 +311,43 @@ app.get('/api/vinyls/:id/image/:kind', async (req, res) => {
   res.send(img.data);
 });
 
+/* ------------------------------------------- accueil : ajouts récents */
+
+/* Six derniers disques ajoutés sur le site, sans jamais dire à qui ils sont :
+   ni le propriétaire, ni son nom d'utilisateur ne sortent d'ici. */
+async function recentVinyls() {
+  const { rows } = await pool.query(
+    `SELECT v.id, v.title, v.artist, v.year
+       FROM vinyls v
+      WHERE EXISTS (SELECT 1 FROM images i WHERE i.vinyl_id = v.id AND i.kind = 'front')
+   ORDER BY v.created_at DESC
+      LIMIT 6`
+  );
+  return rows;
+}
+
+app.get('/api/recent', async (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=120');
+  res.json({ vinyls: await recentVinyls() });
+});
+
+/* Les pochettes restent privées : cette adresse ne sert que les six vignettes
+   affichées sur l'accueil, et rien d'autre. Elle ne permet pas de remonter à
+   une collection ni de parcourir les disques d'un compte. */
+app.get('/api/recent/:id/cover', async (req, res) => {
+  const id = Number(req.params.id);
+  const recent = await recentVinyls();
+  if (!recent.some((v) => v.id === id)) return res.status(404).end();
+
+  const { rows } = await pool.query(
+    "SELECT mime, data FROM images WHERE vinyl_id = $1 AND kind = 'front'", [id]);
+  const img = rows[0];
+  if (!img) return res.status(404).end();
+  res.set('Content-Type', img.mime);
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.send(img.data);
+});
+
 /* -------------------------------------- recherche de titres (MusicBrainz) */
 
 app.get('/api/lookup', async (req, res) => {
@@ -437,7 +474,9 @@ const FAQ = [
    + "sur quel disque et sur quelle face il se trouve."],
   ['Ma collection est-elle visible par les autres ?',
    "Non. Une collection n'est consultable que par la personne connectée à son compte : "
-   + "aucun autre utilisateur, et aucun moteur de recherche, n'y a accès."],
+   + "aucun autre utilisateur, et aucun moteur de recherche, n'y a accès. Seule exception, "
+   + "les six derniers disques ajoutés au site s'affichent sur la page d'accueil, sans "
+   + "jamais indiquer à qui ils appartiennent."],
   ["Que deviennent les photos que j'envoie ?",
    "Elles sont recadrées sur la pochette et réencodées avant publication : toutes les "
    + "métadonnées, y compris la localisation et le modèle d'appareil, sont supprimées."],
