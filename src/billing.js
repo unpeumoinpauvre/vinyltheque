@@ -12,6 +12,18 @@ export const PRICES = {
   yearly: process.env.STRIPE_PRICE_YEARLY || ''
 };
 
+/* Comptes offerts : adresses listees dans VIP_EMAILS (separees par des
+   virgules). Elles passent la limite gratuite sans passer par Stripe.
+   La liste vit dans l'environnement, pas dans le depot, qui est public. */
+const VIP = new Set(
+  (process.env.VIP_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+export const isVip = (u) => Boolean(u?.email && VIP.has(u.email.toLowerCase()));
+
 const key = process.env.STRIPE_SECRET_KEY || '';
 export const stripe = key ? new Stripe(key) : null;
 
@@ -38,6 +50,7 @@ export async function getUser(userId) {
    encore — le second cas rattrape un webhook manqué. */
 export function isPro(u) {
   if (!u) return false;
+  if (isVip(u)) return true;
   if (u.plan === 'pro') return true;
   return Boolean(u.plan_renews_at && new Date(u.plan_renews_at) > new Date());
 }
@@ -66,6 +79,7 @@ export function mountBilling(app, { requireAuth, baseUrl }) {
       ready: billingReady(),
       limit: FREE_LIMIT,
       plan: isPro(u) ? 'pro' : 'free',
+      vip: isVip(u),
       count: await countVinyls(req.user.id),
       interval: u.plan_interval || null,
       renewsAt: u.plan_renews_at || null,
