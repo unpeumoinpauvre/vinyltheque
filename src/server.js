@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import { pool, initDb } from './db.js';
 import { signIn, signOut, readUser, requireAuth } from './auth.js';
 import { sendWelcome, sendReset, sendPasswordChanged, mailReady, baseUrl } from './mail.js';
+import { GUIDES, guideBySlug } from './guides.js';
 import { mountBilling, mountStripeWebhook, FREE_LIMIT, billingReady, isPro, getUser, countVinyls }
   from './billing.js';
 
@@ -343,6 +344,10 @@ app.get('/api/stats', requireAuth, async (req, res) => {
 
 /* Six derniers disques ajoutés sur le site, sans jamais dire à qui ils sont :
    ni le propriétaire, ni son nom d'utilisateur ne sortent d'ici. */
+/* Les six vignettes changent rarement : on garde leur version réduite en
+   mémoire plutôt que de la recalculer à chaque visite. */
+const COVER_THUMBS = new Map();
+
 async function recentVinyls() {
   const { rows } = await pool.query(
     `SELECT v.id, v.title, v.artist, v.year
@@ -367,13 +372,24 @@ app.get('/api/recent/:id/cover', async (req, res) => {
   const recent = await recentVinyls();
   if (!recent.some((v) => v.id === id)) return res.status(404).end();
 
-  const { rows } = await pool.query(
-    "SELECT mime, data FROM images WHERE vinyl_id = $1 AND kind = 'front'", [id]);
-  const img = rows[0];
-  if (!img) return res.status(404).end();
-  res.set('Content-Type', img.mime);
-  res.set('Cache-Control', 'public, max-age=3600');
-  res.send(img.data);
+  let thumb = COVER_THUMBS.get(id);
+  if (!thumb) {
+    const { rows } = await pool.query(
+      "SELECT data FROM images WHERE vinyl_id = $1 AND kind = 'front'", [id]);
+    if (!rows[0]) return res.status(404).end();
+    /* La pochette est stockée en pleine taille ; l'accueil l'affiche dans un
+       carré de 180 pixels. Envoyer l'originale, c'était des centaines de
+       kilo-octets par vignette. */
+    thumb = await sharp(rows[0].data, { failOn: 'none' })
+      .resize(360, 360, { fit: 'cover' })
+      .webp({ quality: 72 })
+      .toBuffer();
+    COVER_THUMBS.set(id, thumb);
+    if (COVER_THUMBS.size > 24) COVER_THUMBS.delete(COVER_THUMBS.keys().next().value);
+  }
+  res.set('Content-Type', 'image/webp');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(thumb);
 });
 
 /* -------------------------------------- recherche de titres (MusicBrainz) */
@@ -545,6 +561,87 @@ app.get('/', (req, res) => renderPage(req, res, {
    propriétaire : les anciennes adresses de partage renvoient à l'accueil. */
 app.get('/u/:username', (_req, res) => res.redirect(301, '/'));
 
+/* --------------------------------------------------------------- guides */
+
+/* Ces pages sont écrites entièrement côté serveur : leur texte doit exister
+   dans le HTML livré, sans dépendre du JavaScript. */
+const guideArticleHtml = (g) =>
+  `<article class="guide">
+     <h1>${attr(g.title)}</h1>
+     <p class="guide-date">Mis à jour le ${new Date(g.updated).toLocaleDateString('fr-FR',
+       { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+     <p class="guide-lede">${g.lede}</p>
+     ${g.sections.map((sec) =>
+       `<section><h2>${attr(sec.h)}</h2>${sec.p.map((t) => `<p>${t}</p>`).join('')}</section>`).join('')}
+     <aside class="guide-cta">
+       <h2>Votre collection, cataloguée toute seule</h2>
+       <p>Photographiez le recto et le verso d'un disque : les titres, l'artiste, l'année et le
+         label se remplissent automatiquement. Gratuit jusqu'à ${FREE_LIMIT} vinyles.</p>
+       <a class="btn gold" href="/">Commencer ma collection</a>
+     </aside>
+     <nav class="guide-more"><h2>Autres guides</h2><ul>${
+       GUIDES.filter((o) => o.slug !== g.slug).map((o) =>
+         `<li><a href="/guides/${o.slug}">${attr(o.title)}</a></li>`).join('')}</ul></nav>
+   </article>`;
+
+const guideListHtml = () => GUIDES.map((g) =>
+  `<a class="guide-card" href="/guides/${g.slug}">
+     <span class="gt">${attr(g.title)}</span>
+     <span class="gd">${attr(g.description)}</span></a>`).join('');
+
+app.get('/guides', (req, res) => {
+  const base = baseUrl(req);
+  renderPage(req, res, {
+    title: 'Guides du collectionneur de vinyles — Vinylthèque',
+    description: 'Cataloguer sa collection, reconnaître un premier pressage, lire les gravures du '
+      + 'sillon, nettoyer et conserver ses disques : nos guides pratiques.',
+    inject: [
+      ['<section id="view-guides" class="view hidden">', '<section id="view-guides" class="view">'],
+      ['<div id="guides-list" class="guides"></div>',
+       `<div id="guides-list" class="guides">${guideListHtml()}</div>`]
+    ],
+    jsonld: {
+      '@context': 'https://schema.org', '@type': 'CollectionPage',
+      name: 'Guides du collectionneur de vinyles', url: base + '/guides', inLanguage: 'fr',
+      mainEntity: {
+        '@type': 'ItemList',
+        itemListElement: GUIDES.map((g, i) => ({
+          '@type': 'ListItem', position: i + 1,
+          name: g.title, url: `${base}/guides/${g.slug}`
+        }))
+      }
+    }
+  });
+});
+
+app.get('/guides/:slug', (req, res) => {
+  const g = guideBySlug(clean(req.params.slug, 80));
+  if (!g) return res.redirect(301, '/guides');
+  const base = baseUrl(req);
+  renderPage(req, res, {
+    title: `${g.title} — Vinylthèque`,
+    description: g.description,
+    inject: [
+      ['<section id="view-guide" class="view hidden">', '<section id="view-guide" class="view">'],
+      ['<div id="guide-body"></div>', `<div id="guide-body">${guideArticleHtml(g)}</div>`]
+    ],
+    jsonld: {
+      '@context': 'https://schema.org', '@type': 'Article',
+      headline: g.title,
+      description: g.description,
+      inLanguage: 'fr',
+      dateModified: g.updated,
+      datePublished: g.updated,
+      mainEntityOfPage: { '@type': 'WebPage', '@id': `${base}/guides/${g.slug}` },
+      author: { '@type': 'Organization', name: 'Vinylthèque' },
+      publisher: {
+        '@type': 'Organization', name: 'Vinylthèque',
+        logo: { '@type': 'ImageObject', url: base + '/og.jpg' }
+      }
+    }
+  });
+});
+
 app.get('/tarifs', (req, res) => renderPage(req, res, {
   title: 'Tarifs — Vinylthèque',
   description: `Gratuit jusqu'à ${FREE_LIMIT} vinyles, puis 5 € par mois ou 50 € par an `
@@ -571,7 +668,11 @@ app.get('/sitemap.xml', async (req, res) => {
   const base = baseUrl(req);
   const urls = [
     `  <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
-    `  <url><loc>${base}/tarifs</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`];
+    `  <url><loc>${base}/guides</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>`,
+    `  <url><loc>${base}/tarifs</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`]
+    .concat(GUIDES.map((g) =>
+      `  <url><loc>${base}/guides/${g.slug}</loc><lastmod>${g.updated}</lastmod>`
+      + `<changefreq>monthly</changefreq><priority>0.7</priority></url>`));
   res.type('application/xml').send(
 `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
