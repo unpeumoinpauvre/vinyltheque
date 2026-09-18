@@ -9,7 +9,7 @@ const TODO = (quoi) => `<mark class="todo">[à compléter : ${quoi}]</mark>`;
 
 export const SOCIETE = 'Kollector, LLC';
 export const ADRESSE = '131 Continental Drive, Suite 305, Newark, DE 19713, États-Unis';
-export const CONTACT = TODO('adresse e-mail de contact');
+export const CONTACT = '<a href="mailto:contact@vinyltheque.com">contact@vinyltheque.com</a>';
 
 export const PAGES = [
   {
