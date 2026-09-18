@@ -2,10 +2,8 @@
    conditions de vente.
 
    Elles sont écrites côté serveur, comme les guides, pour exister sans
-   JavaScript. Ce que je n'ai pas pu vérifier reste marqué À COMPLÉTER plutôt
-   qu'inventé : une mention légale fausse est pire qu'une mention absente. */
-
-const TODO = (quoi) => `<mark class="todo">[à compléter : ${quoi}]</mark>`;
+   JavaScript. Rien n'y est inventé : une mention légale fausse est pire
+   qu'une mention absente. */
 
 export const SOCIETE = 'Kollector, LLC';
 export const ADRESSE = '131 Continental Drive, Suite 305, Newark, DE 19713, États-Unis';
@@ -60,14 +58,14 @@ export const PAGES = [
           + `responsabilité limitée (<i>limited liability company</i>) constituée selon le droit `
           + `de l'État du Delaware, États-Unis.`,
           `Siège social : ${ADRESSE}.`,
-          `Numéro de dossier au registre du Delaware : ${TODO('file number du Delaware')}.`,
           'Directeur de la publication : le représentant légal de Kollector, LLC.',
           `Contact : ${CONTACT}.`]
       },
       {
         h: 'Hébergement',
-        p: ["Le site est hébergé par Railway Corp., société de droit américain "
-          + `(railway.com) — adresse postale : ${TODO('adresse de Railway, à relever sur railway.com/legal')}.`,
+        p: ['Le site est hébergé par Railway Corp., société de droit américain '
+          + '(railway.com), 548 Market St PMB 68956, San Francisco, Californie 94104, '
+          + 'États-Unis.',
           "Le nom de domaine est enregistré auprès d'OVH SAS, 2 rue Kellermann, 59100 Roubaix, "
           + 'France, et la résolution DNS est assurée par Cloudflare, Inc.']
       },
