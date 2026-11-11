@@ -137,11 +137,13 @@ async function cropCover(file) {
 function renderNav() {
   const p = location.pathname;
   const items = state.me
-    ? [['/collection', 'Ma collection'], ['/recherche', 'Recherche'],
-       ['/statistiques', 'Statistiques'], ['/abonnement', 'Abonnement']]
+    ? [['/collection', 'Ma collection', 'Collection'], ['/recherche', 'Recherche'],
+       ['/statistiques', 'Statistiques', 'Stats'], ['/abonnement', 'Abonnement']]
     : [['/', 'Accueil'], ['/guides', 'Guides'], ['/tarifs', 'Tarifs']];
+  /* Sur téléphone les quatre onglets doivent tenir sur une ligne : libellé court. */
   $('#mainnav').innerHTML = items
-    .map(([href, label]) => `<a href="${href}" class="${p === href ? 'on' : ''}">${label}</a>`).join('');
+    .map(([href, label, short]) => `<a href="${href}" class="${p === href ? 'on' : ''}">${
+      short ? `<span class="full">${label}</span><span class="short">${short}</span>` : label}</a>`).join('');
   /* Les guides sont écrits par le serveur : on laisse le navigateur charger la
      page au lieu de la router côté client, sinon leur texte n'existerait pas. */
   $$('#mainnav a').forEach((a) => {
@@ -214,8 +216,51 @@ function renderGrid() {
 /* ------------------------------------------------------- modale & fiche */
 
 const modal = $('#modal');
-const openModal = (html) => { $('#modal-body').innerHTML = html; modal.classList.remove('hidden'); };
-const closeModal = () => modal.classList.add('hidden');
+/* Sur téléphone, le geste « retour » doit fermer la fenêtre ouverte (fiche,
+   formulaire) et non quitter la page en perdant ce qu'on y a saisi. La fenêtre
+   occupe donc une entrée de l'historique, retirée quand on la ferme autrement. */
+let modalInHistory = false;      // la fenêtre ouverte a son entrée dans l'historique
+let skipPop = 0;                 // retours déclenchés par nous : à ne pas traiter comme une navigation
+let backDone = Promise.resolve();
+let backResolve = null;
+let formDirty = false;           // une saisie est en cours dans le formulaire
+
+const hideModal = () => {
+  modal.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+  formDirty = false;
+};
+const openModal = (html) => {
+  $('#modal-body').innerHTML = html;
+  modal.classList.remove('hidden');
+  modal.scrollTop = 0;
+  document.body.classList.add('modal-open');
+  formDirty = false;
+  if (!modalInHistory) { history.pushState({ modal: true }, ''); modalInHistory = true; }
+};
+const closeModal = () => {
+  const wasOpen = !modal.classList.contains('hidden');
+  hideModal();
+  if (wasOpen && modalInHistory) {
+    modalInHistory = false;
+    skipPop++;
+    backDone = new Promise((res) => { backResolve = res; });
+    history.back();
+  }
+};
+function onPop() {
+  if (skipPop) { skipPop--; backResolve?.(); return; }
+  if (modalInHistory) {
+    if (formDirty && !confirm('Fermer sans enregistrer ce que vous avez saisi ?')) {
+      history.pushState({ modal: true }, '');      // on reste sur le formulaire
+      return;
+    }
+    modalInHistory = false;
+    hideModal();
+    return;
+  }
+  route();
+}
 modal.addEventListener('click', (e) => { if (e.target === modal || e.target.dataset.close !== undefined) closeModal(); });
 document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
 
@@ -293,25 +338,19 @@ function showForm(v = null) {
   openModal(`
     <h2 style="margin:0 0 14px">${v ? 'Modifier le vinyle' : 'Ajouter un vinyle'}</h2>
     <form id="f-vinyl" class="stack">
-      <div class="row">
-        <label>Nom du vinyle *<input name="title" required value="${esc(v?.title)}"></label>
-        <label>Artiste<input name="artist" value="${esc(v?.artist)}"></label>
-      </div>
-      <div class="row">
-        <label>Année<input name="year" inputmode="numeric" value="${esc(v?.year)}"></label>
-        <label>Label<input name="label" value="${esc(v?.label)}"></label>
-      </div>
       <div class="photos">
-        <div class="photo-slot">
+        <label class="photo-slot">
           <img id="pv-front" ${v?.has_front ? `src="/api/vinyls/${v.id}/image/front"` : 'hidden'} alt="">
-          Recto (pochette)<br><small>Photo ou galerie</small>
+          <b>Recto</b><small>la pochette</small>
+          <span class="pick">Prendre ou choisir une photo</span>
           <input type="file" name="front" accept="image/*">
-        </div>
-        <div class="photo-slot">
+        </label>
+        <label class="photo-slot">
           <img id="pv-back" ${v?.has_back ? `src="/api/vinyls/${v.id}/image/back"` : 'hidden'} alt="">
-          Verso (liste des titres)<br><small>Photo ou galerie</small>
+          <b>Verso</b><small>la liste des titres</small>
+          <span class="pick">Prendre ou choisir une photo</span>
           <input type="file" name="back" accept="image/*">
-        </div>
+        </label>
       </div>
       <label class="inline"><input type="checkbox" id="autocrop" checked> Recadrer automatiquement sur la pochette</label>
       <div class="actions" style="margin:0">
@@ -321,19 +360,29 @@ function showForm(v = null) {
       <p class="hint" id="auto-status">${state.ai
         ? 'Ajoutez le recto et le verso : le nom, l\'artiste, l\'année, le label et les titres face par face se remplissent tout seuls.'
         : 'Lit le verso (titres, face A / face B), puis vérifie la liste avec MusicBrainz quand le disque y figure.'}</p>
+      <div class="row">
+        <label>Nom du vinyle *<input name="title" required value="${esc(v?.title)}"></label>
+        <label>Artiste<input name="artist" value="${esc(v?.artist)}"></label>
+      </div>
+      <div class="row keep">
+        <label>Année<input name="year" inputmode="numeric" value="${esc(v?.year)}"></label>
+        <label>Label<input name="label" value="${esc(v?.label)}"></label>
+      </div>
       <label>Titres <small>(un par ligne : « A1. Titre », « B2. Titre »… ou une ligne « Face B » avant les titres de la face)</small>
         <textarea name="tracks">${esc(Reader.toText(v?.tracks || []))}</textarea></label>
       <div id="tracks-preview" class="preview"></div>
       <label>Notes<textarea name="notes" style="min-height:60px">${esc(v?.notes)}</textarea></label>
       <p class="error" id="f-error"></p>
-      <div class="actions">
-        <button class="btn primary" type="submit">${v ? 'Enregistrer' : 'Ajouter à ma collection'}</button>
+      <div class="actions final">
+        <button class="btn gold" type="submit">${v ? 'Enregistrer' : 'Ajouter à ma collection'}</button>
         <button class="btn ghost" type="button" data-close>Annuler</button>
       </div>
     </form>`);
 
   const form = $('#f-vinyl');
   const status = $('#auto-status');
+  form.addEventListener('input', () => { formDirty = true; });
+  form.addEventListener('change', () => { formDirty = true; });
   const shots = { front: null, back: null };   // ce qui sera réellement envoyé
   const crops = { front: null, back: null };   // zone de la pochette dans la photo d'origine
   /* Champs corrigés à la main dans ce formulaire : la lecture automatique n'y touche plus. */
@@ -555,6 +604,7 @@ function showForm(v = null) {
     try {
       const d = await api(v ? `/api/vinyls/${v.id}` : '/api/vinyls',
         { method: v ? 'PUT' : 'POST', body: fd });
+      formDirty = false;
       closeModal(); await loadMine();
       reveal(v ? v.id : d.id, v ? `« ${name} » est enregistré.` : `« ${name} » est ajouté à votre collection.`);
     } catch (err) {
@@ -904,7 +954,8 @@ function flash(msg) {
   line.classList.remove('hidden');
   line.style.color = 'var(--ok)';
   line.textContent = msg;
-  setTimeout(() => { line.style.color = ''; renderVerifyBanner(); }, 6000);
+  clearTimeout(flash.timer);        // un message plus ancien ne doit pas effacer celui-ci
+  flash.timer = setTimeout(() => { line.style.color = ''; renderVerifyBanner(); }, 6000);
 }
 
 /* Après un ajout, le formulaire se ferme sur une collection classée par
@@ -919,8 +970,13 @@ function reveal(id, msg) {
   setTimeout(() => card.classList.remove('fresh'), 5000);
 }
 
-async function go(path) { history.pushState({}, '', path); await route(); }
-window.addEventListener('popstate', route);
+async function go(path) {
+  await backDone;                 // une fenêtre vient d'être fermée : son entrée d'historique s'en va d'abord
+  modalInHistory = false;
+  history.pushState({}, '', path);
+  await route();
+}
+window.addEventListener('popstate', onPop);
 
 /* ------------------------------------------------------------ démarrage */
 
