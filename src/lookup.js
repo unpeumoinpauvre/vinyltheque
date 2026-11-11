@@ -11,6 +11,14 @@
      listes diffèrent. On renvoie les meilleures candidates, vinyles d'abord ; le
      navigateur garde celle qui correspond à ce qu'il a lu sur la photo. */
 
+import net from 'node:net';
+
+/* Node essaie les adresses IPv4 et IPv6 d'un site tour à tour et n'accorde que
+   250 ms à chaque essai. MusicBrainz est hébergé en Europe : depuis un serveur
+   lointain la connexion met plus longtemps à s'ouvrir, et la recherche échouait
+   avant même d'avoir commencé (« fetch failed », ETIMEDOUT). */
+net.setDefaultAutoSelectFamilyAttemptTimeout?.(3000);
+
 /* Adresse de l'API : celle de MusicBrainz, ou celle d'un miroir (MUSICBRAINZ_URL). */
 const MB = (process.env.MUSICBRAINZ_URL || 'https://musicbrainz.org/ws/2').replace(/\/+$/, '');
 const HEADERS = {
@@ -107,6 +115,11 @@ function summarize(detail, fallback = {}) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const lucene = (s) => String(s).replace(/["\\]/g, ' ').replace(/\s+/g, ' ').trim();
 
+/* Dans la recherche de MusicBrainz, « format » se compare en entier : un 33 tours
+   y est « 12" Vinyl », et format:"Vinyl" tout court ne le trouve pas. */
+const VINYL = '(' + ['12" Vinyl', '7" Vinyl', '10" Vinyl', 'Vinyl']
+  .map((f) => `format:"${f.replace(/"/g, '\\"')}"`).join(' OR ') + ')';
+
 /* MusicBrainz demande au plus une requête par seconde et par adresse, et répond
    503 au-delà. Toutes les requêtes du serveur passent donc par cette file, quel
    que soit le nombre de visiteurs qui cherchent en même temps. */
@@ -118,11 +131,25 @@ async function slot(interval) {
   if (wait) await sleep(wait);
 }
 
-async function getJson(url, fetchImpl, interval) {
-  await slot(interval);
-  const r = await fetchImpl(url, { headers: HEADERS, signal: AbortSignal.timeout(9000) });
-  if (!r.ok) throw new Error(`MusicBrainz ${r.status}`);
-  return r.json();
+/* MusicBrainz répond aussi 503 quand il est chargé, même à un visiteur sage :
+   on patiente et on redemande, deux fois au plus. Une connexion qui échoue a
+   droit aux mêmes essais ; une réponse qui n'arrive pas en 9 s, non. */
+async function getJson(url, fetchImpl, interval, pause) {
+  let failure;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await sleep(pause * attempt);
+    await slot(interval);
+    try {
+      const r = await fetchImpl(url, { headers: HEADERS, signal: AbortSignal.timeout(9000) });
+      if (r.ok) return await r.json();
+      failure = new Error(`MusicBrainz ${r.status}`);
+      if (r.status !== 503 && r.status !== 429) break;
+    } catch (e) {
+      failure = e;
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') break;
+    }
+  }
+  throw failure;
 }
 
 /* Mémoire courte : le même disque est souvent demandé deux fois de suite
@@ -133,9 +160,10 @@ const TTL = 6 * 60 * 60 * 1000;
 /**
  * Cherche un disque. Renvoie { found: false } ou
  * { found: true, ...meilleure, candidates: [jusqu'à 3 éditions, la meilleure d'abord] }.
- * Deux à quatre requêtes vers MusicBrainz, espacées d'une seconde.
+ * Deux à quatre requêtes vers MusicBrainz, espacées d'une seconde (davantage
+ * s'il faut en redemander une).
  */
-export async function lookupRelease({ title, artist = '' }, { fetchImpl = fetch, interval = 1050 } = {}) {
+export async function lookupRelease({ title, artist = '' }, { fetchImpl = fetch, interval = 1050, pause = 1200 } = {}) {
   const key = fold(title) + '|' + fold(artist);
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL) return hit.value;
@@ -143,12 +171,12 @@ export async function lookupRelease({ title, artist = '' }, { fetchImpl = fetch,
   const base = [`release:"${lucene(title)}"`, artist ? `artist:"${lucene(artist)}"` : ''].filter(Boolean);
   const search = async (extra) => {
     const q = [...base, ...extra].join(' AND ');
-    const data = await getJson(`${MB}/release?query=${encodeURIComponent(q)}&fmt=json&limit=12`, fetchImpl, interval);
+    const data = await getJson(`${MB}/release?query=${encodeURIComponent(q)}&fmt=json&limit=12`, fetchImpl, interval, pause);
     return data.releases ?? [];
   };
 
   /* Les pressages vinyle d'abord ; à défaut seulement, n'importe quelle édition. */
-  let found = rankReleases(await search(['format:"Vinyl"']), { title, artist });
+  let found = rankReleases(await search([VINYL]), { title, artist });
   if (!found.length) found = rankReleases(await search([]), { title, artist });
   if (!found.length) return remember(key, { found: false });
 
@@ -158,7 +186,7 @@ export async function lookupRelease({ title, artist = '' }, { fetchImpl = fetch,
   for (const r of found.slice(0, 3)) {
     let detail;
     try {
-      detail = await getJson(`${MB}/release/${r.id}?inc=recordings+artist-credits+labels+release-groups&fmt=json`, fetchImpl, interval);
+      detail = await getJson(`${MB}/release/${r.id}?inc=recordings+artist-credits+labels+release-groups&fmt=json`, fetchImpl, interval, pause);
     } catch { continue; }
     const c = summarize(detail, { title: r.title, artist });
     if (!c.tracks.length) continue;

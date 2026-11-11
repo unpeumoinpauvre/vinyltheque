@@ -29,20 +29,25 @@ test('classement : le bon album en vinyle avant le CD, l\'homonyme écarté', ()
   assert.ok(similarity('Harbor Lights', 'harbor  lights!') === 1);
 });
 
-/* Faux MusicBrainz : `vinyl: false` simule un album qui n'existe qu'en CD. */
-function fakeFetch(log, { vinyl = true } = {}) {
+/* Faux MusicBrainz. Comme le vrai, il compare « format » en entier : un 33 tours
+   est « 12" Vinyl », et format:"Vinyl" seul ne le trouve pas.
+   `vinyl: false` simule un album qui n'existe qu'en CD ; `busy: n` répond 503
+   aux n premières demandes. */
+function fakeFetch(log, { vinyl = true, busy = 0 } = {}) {
   return async (url) => {
     log.push(url);
     const u = new URL(url);
     const reply = (body, status = 200) => ({ ok: status === 200, status, json: async () => body });
+    if (busy-- > 0) return reply({ error: 'Your requests are exceeding the allowable rate limit.' }, 503);
     if (u.pathname.endsWith('/release')) {
       const q = u.searchParams.get('query');
       if (!/Harbor Lights/i.test(q)) return reply({ releases: [] });
-      const wantsVinyl = /format:"Vinyl"/.test(q);
+      const formats = [...q.matchAll(/format:"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1].replace(/\\(.)/g, '$1'));
       return reply({
         releases: search.releases.filter((r) => {
           const isVinyl = /Vinyl/.test(r.media[0].format);
-          return wantsVinyl ? vinyl && isVinyl : vinyl || !isVinyl;
+          if (isVinyl && !vinyl) return false;
+          return !formats.length || r.media.some((m) => formats.includes(m.format));
         })
       });
     }
@@ -74,6 +79,19 @@ test('album sans pressage vinyle connu : le CD, sans faces inventées', async ()
   assert.equal(d.hasSides, false);
   assert.equal(d.format, 'CD');
   assert.deepEqual(d.tracks.map((t) => t.side), ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
+});
+
+test('MusicBrainz chargé (503) : on redemande au lieu d\'abandonner', async () => {
+  const log = [];
+  const d = await lookupRelease({ title: 'Harbor Lights', artist: 'Hollow Pines' },
+    { fetchImpl: fakeFetch(log, { busy: 2 }), interval: 0, pause: 0 });
+  assert.equal(d.found, true);
+  assert.equal(d.hasSides, true);
+  assert.equal(log.length, 4, 'deux refus, puis la recherche et la fiche');
+
+  await assert.rejects(
+    lookupRelease({ title: 'Harbor Lights', artist: 'Pines' }, { fetchImpl: fakeFetch([], { busy: 9 }), interval: 0, pause: 0 }),
+    /MusicBrainz 503/);
 });
 
 test('disque inconnu', async () => {
