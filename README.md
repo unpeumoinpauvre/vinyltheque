@@ -18,7 +18,22 @@ Catalogue de collection de vinyles : **deux photos par disque** (recto / verso) 
 
 ## Lecture des pochettes
 
-Le code vit dans `public/reader.js` (navigateur) et `src/lookup.js` (serveur).
+Deux lectures existent. Avec une clé `ANTHROPIC_API_KEY`, les photos sont lues par une IA ; sans clé, ou si l'IA est indisponible, la lecture intégrée au navigateur prend le relais sans rien demander.
+
+### Par IA (`src/vision.js`)
+
+Le navigateur envoie le recto et le verso à `POST /api/read`. Le serveur les montre à Claude (API d'Anthropic), qui rend ce qui est imprimé : artiste, titre, label, numéro de catalogue, année, titres face par face — jamais une liste « de mémoire ». Le résultat est recoupé avec MusicBrainz, cherché d'abord par numéro de catalogue (le pressage exact), puis par titre :
+
+- la liste lue sur la pochette reste la référence : c'est ce disque-là que la personne possède ;
+- si la pochette n'indique pas les faces, elles sont reprises du pressage vinyle correspondant ;
+- si la liste n'est pas sur les photos, c'est celle de la base ;
+- année et label : ceux imprimés d'abord, sinon ceux de la base (l'année la plus ancienne des éditions retenues).
+
+Dès que les deux photos d'un nouveau disque sont choisies, la lecture part toute seule. Un champ corrigé à la main n'est plus écrasé. Une lecture coûte environ 3 centimes avec le modèle par défaut ; deux plafonds journaliers (par compte, et pour tout le site) bornent la dépense.
+
+Les photos partent chez Anthropic sans aucune information de compte ; les pages « À propos » et « Confidentialité » le disent.
+
+### Intégrée (`public/reader.js`, `src/lookup.js`)
 
 **Sur la photo.** Tesseract rend des mots et leur position, pas une mise en page : sur un verso à deux colonnes, « 1. Titre A      1. Titre B » arrive sur une seule ligne. `reader.js` reconstruit donc la page :
 
@@ -42,11 +57,11 @@ Les requêtes vers MusicBrainz passent par une file à une requête par seconde,
 npm test
 ```
 
-Sans navigateur ni réseau : `test/fixtures/musicbrainz.js` contient des réponses au format de l'API MusicBrainz (33 tours, CD, double album).
+Sans navigateur ni réseau : `test/fixtures/musicbrainz.js` contient des réponses au format de l'API MusicBrainz (33 tours, CD, double album), et `test/vision.test.js` remplace l'IA par un double qui répond au format de l'API d'Anthropic.
 
 ## Stack
 
-Node 20+ / Express · PostgreSQL · Tesseract.js (côté navigateur) · sharp · JWT en cookie httpOnly
+Node 20+ / Express · PostgreSQL · Claude (API d'Anthropic) pour lire les pochettes · Tesseract.js (côté navigateur, en relais) · sharp · JWT en cookie httpOnly
 
 ## Variables d'environnement
 
@@ -58,6 +73,11 @@ Node 20+ / Express · PostgreSQL · Tesseract.js (côté navigateur) · sharp ·
 | `RESEND_API_KEY` | Clé d'API Resend. **Absente, le site fonctionne** : les e-mails sont écrits dans les logs au lieu d'être envoyés |
 | `MAIL_FROM` | Expéditeur, ex. `Vinylthèque <bonjour@ton-domaine.fr>` (défaut : `onboarding@resend.dev`) |
 | `APP_URL` | Base des liens envoyés par e-mail (sinon déduite de `RAILWAY_PUBLIC_DOMAIN`) |
+| `ANTHROPIC_API_KEY` | Clé d'API Anthropic. **Absente, le site fonctionne** avec la lecture intégrée au navigateur |
+| `AI_MODEL` | Facultatif : modèle qui lit les photos (défaut : `claude-sonnet-5-5` ; `claude-haiku-5-5` coûte quinze fois moins) |
+| `AI_EFFORT` | Facultatif : effort de réflexion du modèle, `low`, `medium` ou `high` (défaut : `medium`) |
+| `AI_USER_DAILY` | Facultatif : lectures par IA par compte et par jour (défaut : 40) |
+| `AI_DAILY_LIMIT` | Facultatif : lectures par IA par jour pour tout le site (défaut : 300) |
 | `MUSICBRAINZ_URL` | Facultatif : adresse d'un miroir de l'API MusicBrainz (défaut : `https://musicbrainz.org/ws/2`) |
 | `PORT` | Fourni automatiquement par Railway |
 

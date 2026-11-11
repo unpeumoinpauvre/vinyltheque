@@ -41,6 +41,7 @@ function fakeFetch(log, { vinyl = true, busy = 0 } = {}) {
     if (busy-- > 0) return reply({ error: 'Your requests are exceeding the allowable rate limit.' }, 503);
     if (u.pathname.endsWith('/release')) {
       const q = u.searchParams.get('query');
+      if (/^catno:/.test(q)) return reply({ releases: /catno:"LKS 1042"/.test(q) ? search.releases.filter((r) => r.id === 'rel-lp') : [] });
       if (!/Harbor Lights/i.test(q)) return reply({ releases: [] });
       const formats = [...q.matchAll(/format:"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1].replace(/\\(.)/g, '$1'));
       return reply({
@@ -92,6 +93,21 @@ test('MusicBrainz chargé (503) : on redemande au lieu d\'abandonner', async () 
   await assert.rejects(
     lookupRelease({ title: 'Harbor Lights', artist: 'Pines' }, { fetchImpl: fakeFetch([], { busy: 9 }), interval: 0, pause: 0 }),
     /MusicBrainz 503/);
+});
+
+test('numéro de catalogue lu sur la pochette : le pressage exact, sans autre recherche', async () => {
+  const log = [];
+  const d = await lookupRelease({ title: 'Harbor Lights', artist: 'The Hollow Pines', catno: 'LKS 1042' }, { fetchImpl: fakeFetch(log), interval: 0 });
+  assert.equal(d.found, true);
+  assert.match(new URL(log[0]).searchParams.get('query'), /^catno:"LKS 1042"$/);
+  assert.equal(log.length, 2, 'la recherche par numéro, puis la fiche');
+  assert.equal(d.hasSides, true);
+
+  /* numéro inconnu de la base : on retombe sur la recherche par titre */
+  const log2 = [];
+  const e = await lookupRelease({ title: 'Harbor Lights', artist: 'The Hollow Pines', catno: 'ZZ 999' }, { fetchImpl: fakeFetch(log2), interval: 0 });
+  assert.equal(e.found, true);
+  assert.equal(log2.length, 3);
 });
 
 test('disque inconnu', async () => {

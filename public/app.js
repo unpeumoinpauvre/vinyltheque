@@ -4,12 +4,16 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { me: null, vinyls: [], filter: '', billing: null };
+const state = { me: null, vinyls: [], filter: '', billing: null, ai: false };
 
 async function api(url, opts = {}) {
   const res = await fetch(url, { credentials: 'same-origin', ...opts });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Erreur réseau');
+  if (!res.ok) {
+    const err = new Error(data.error || 'Erreur réseau');
+    err.status = res.status; err.code = data.code;
+    throw err;
+  }
   return data;
 }
 
@@ -314,7 +318,9 @@ function showForm(v = null) {
         <button type="button" class="btn primary" id="btn-ocr">Remplir automatiquement</button>
         <button type="button" class="btn" id="btn-online">Compléter depuis MusicBrainz</button>
       </div>
-      <p class="hint" id="auto-status">Lit le verso (titres, face A / face B), puis vérifie la liste avec MusicBrainz quand le disque y figure.</p>
+      <p class="hint" id="auto-status">${state.ai
+        ? 'Ajoutez le recto et le verso : le nom, l\'artiste, l\'année, le label et les titres face par face se remplissent tout seuls.'
+        : 'Lit le verso (titres, face A / face B), puis vérifie la liste avec MusicBrainz quand le disque y figure.'}</p>
       <label>Titres <small>(un par ligne : « A1. Titre », « B2. Titre »… ou une ligne « Face B » avant les titres de la face)</small>
         <textarea name="tracks">${esc(Reader.toText(v?.tracks || []))}</textarea></label>
       <div id="tracks-preview" class="preview"></div>
@@ -330,6 +336,10 @@ function showForm(v = null) {
   const status = $('#auto-status');
   const shots = { front: null, back: null };   // ce qui sera réellement envoyé
   const crops = { front: null, back: null };   // zone de la pochette dans la photo d'origine
+  /* Champs corrigés à la main dans ce formulaire : la lecture automatique n'y touche plus. */
+  const typed = new Set();
+  for (const f of ['title', 'artist', 'year', 'label']) form[f].addEventListener('input', () => typed.add(f));
+  let autoRead = false;                        // la lecture s'est déjà lancée d'elle-même
 
   /* Aperçu face par face de ce qui sera enregistré, mis à jour à la frappe. */
   const preview = () => {
@@ -355,6 +365,47 @@ function showForm(v = null) {
     crops[kind] = crop ? crop.frac : null;
     img.src = URL.createObjectURL(blob);
     img.hidden = false;
+    /* Les deux photos d'un nouveau disque sont là : la lecture part toute seule. */
+    if (state.ai && !v && !autoRead && form.front.files?.[0] && form.back.files?.[0]) {
+      autoRead = true;
+      $('#btn-ocr').click();
+    }
+  }
+
+  /* Lecture par l'IA : les deux photos partent au serveur, qui rend la fiche
+     remplie. Photo entière (sans recadrage : rien ne doit manquer), 2000 px. */
+  async function readWithAi() {
+    const fd = new FormData();
+    for (const kind of ['front', 'back']) {
+      const file = form[kind].files?.[0];
+      if (file) fd.set(kind, await reencode(file, 2000), kind + '.jpg');
+    }
+    if (v) fd.set('id', v.id);
+    const d = await api('/api/read', { method: 'POST', body: fd });
+
+    const done = [];
+    const put = (field, value, label) => {
+      if (!value || typed.has(field)) return;
+      form[field].value = value;
+      done.push(label);
+    };
+    put('title', d.title, 'nom'); put('artist', d.artist, 'artiste');
+    put('year', d.year, 'année'); put('label', d.label, 'label');
+    if (d.tracks?.length) {
+      setTracks(d.tracks);
+      const faces = new Set(d.tracks.map((t) => Reader.splitSide(t.side).letter).filter(Boolean)).size;
+      const how = d.how === 'base' ? 'repris de MusicBrainz (liste absente des photos)'
+        : 'lus sur la pochette' + (d.how === 'photo+faces' ? ', faces reprises de MusicBrainz' : '')
+          + (d.confirmed ? ', confirmés par MusicBrainz' : '');
+      done.push(`${d.tracks.length} titres ${how}${faces ? ` (${faces} face${faces > 1 ? 's' : ''})` : ''}`);
+    }
+    if (!done.length) {
+      status.textContent = "Rien de lisible sur ces photos : reprenez-les bien à plat, sans reflet, ou saisissez le nom du vinyle.";
+      return;
+    }
+    status.innerHTML = `<span class="ok">Rempli : ${done.map(esc).join(', ')}.</span> Vérifiez avant d'enregistrer.`
+      + (d.tracks?.length && !d.hasSides ? " La pochette n'indique pas les faces : ajoutez une ligne « Face B » avant le premier titre de la face B." : '')
+      + (d.tracks?.length ? '' : " La liste des titres n'est pas sur ces photos.");
   }
 
   form.front.onchange = () => handlePhoto('front');
@@ -375,9 +426,21 @@ function showForm(v = null) {
   }
 
   $('#btn-ocr').onclick = async (e) => {
+    if (e.target.disabled) return;
     e.target.disabled = true;
     const done = [];
     try {
+      if (state.ai) {
+        const any = ['front', 'back'].some((k) => form[k].files?.[0] || v?.[k === 'front' ? 'has_front' : 'has_back']);
+        if (!any) { status.textContent = "Ajoutez d'abord au moins une photo."; return; }
+        status.textContent = 'Lecture des photos… (une dizaine de secondes)';
+        try { await readWithAi(); return; }
+        catch (err) {
+          /* IA indisponible ou plafond atteint : la lecture intégrée prend le relais. */
+          console.warn('Lecture IA :', err.message);
+          status.textContent = (err.code === 'quota' ? err.message : 'Lecture rapide indisponible.') + ' Lecture intégrée en cours…';
+        }
+      }
       const back = await source('back'), front = await source('front');
       if (!back && !front) { status.textContent = "Ajoutez d'abord au moins une photo."; return; }
 
@@ -926,7 +989,7 @@ $('#q').oninput = renderSearch;
 $('.brand').onclick = (e) => { e.preventDefault(); go('/'); };
 
 (async () => {
-  try { state.me = (await api('/api/me')).user; } catch {}
+  try { const d = await api('/api/me'); state.me = d.user; state.ai = Boolean(d.ai); } catch {}
   renderUserbox();
   route();
 })();

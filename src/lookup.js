@@ -103,7 +103,8 @@ function summarize(detail, fallback = {}) {
     mbid: detail.id,
     title: detail.title ?? fallback.title ?? '',
     artist: credit || fallback.artist || '',
-    year: String(detail.date ?? detail['release-group']?.['first-release-date'] ?? '').slice(0, 4),
+    /* date vide (pressage non daté) : celle de la première sortie de l'album */
+    year: String(detail.date || detail['release-group']?.['first-release-date'] || '').slice(0, 4),
     label: (detail['label-info'] ?? []).map((l) => l.label?.name).filter(Boolean)[0] ?? '',
     format: (detail.media ?? []).map((m) => m.format).filter(Boolean)[0] ?? '',
     country: detail.country ?? '',
@@ -163,20 +164,27 @@ const TTL = 6 * 60 * 60 * 1000;
  * Deux à quatre requêtes vers MusicBrainz, espacées d'une seconde (davantage
  * s'il faut en redemander une).
  */
-export async function lookupRelease({ title, artist = '' }, { fetchImpl = fetch, interval = 1050, pause = 1200 } = {}) {
-  const key = fold(title) + '|' + fold(artist);
+export async function lookupRelease({ title, artist = '', catno = '' }, { fetchImpl = fetch, interval = 1050, pause = 1200 } = {}) {
+  const key = fold(title) + '|' + fold(artist) + '|' + fold(catno);
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL) return hit.value;
 
   const base = [`release:"${lucene(title)}"`, artist ? `artist:"${lucene(artist)}"` : ''].filter(Boolean);
-  const search = async (extra) => {
-    const q = [...base, ...extra].join(' AND ');
+  const ask = async (q) => {
     const data = await getJson(`${MB}/release?query=${encodeURIComponent(q)}&fmt=json&limit=12`, fetchImpl, interval, pause);
     return data.releases ?? [];
   };
+  const search = (extra) => ask([...base, ...extra].join(' AND '));
 
-  /* Les pressages vinyle d'abord ; à défaut seulement, n'importe quelle édition. */
-  let found = rankReleases(await search([VINYL]), { title, artist });
+  /* Le numéro de catalogue imprimé sur la pochette désigne le pressage exact :
+     on commence par lui, en gardant le titre comme garde-fou (un même numéro
+     peut exister chez deux maisons de disques). */
+  let found = [];
+  if (lucene(catno).length >= 3) {
+    try { found = rankReleases(await ask(`catno:"${lucene(catno)}"`), { title, artist }); } catch { /* on cherchera par le titre */ }
+  }
+  /* Puis les pressages vinyle ; à défaut seulement, n'importe quelle édition. */
+  if (!found.length) found = rankReleases(await search([VINYL]), { title, artist });
   if (!found.length) found = rankReleases(await search([]), { title, artist });
   if (!found.length) return remember(key, { found: false });
 
