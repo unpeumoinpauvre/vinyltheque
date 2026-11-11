@@ -203,9 +203,19 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
 .photo-slot img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;margin-bottom:8px;background:#101014}
 .photo-slot input[type=file]{font-size:12px;padding:6px}
 .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
-.tracklist{list-style:none;padding:0;margin:8px 0 0;columns:2;column-gap:26px}
-.tracklist li{font-size:14px;padding:3px 0;break-inside:avoid;color:#d8d5da}
-.tracklist .side{color:var(--gold-soft);font-variant-numeric:tabular-nums;margin-right:7px;font-size:12px}
+/* Titres regroupés par face : « Face A » et « Face B » côte à côte. */
+.sides{display:grid;grid-template-columns:1fr 1fr;gap:14px 26px;margin-top:8px}
+.sides.flat{display:block}
+.side-block h4{margin:0 0 4px;padding-bottom:4px;border-bottom:1px solid var(--line);
+  font:600 12px/1.4 var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--gold-soft)}
+.tracklist{list-style:none;padding:0;margin:0}
+.sides.flat .tracklist{columns:2;column-gap:26px}
+.tracklist li{display:flex;gap:9px;font-size:14px;padding:3px 0;break-inside:avoid;color:#d8d5da}
+.tracklist .n{flex:none;min-width:16px;text-align:right;color:var(--dim);
+  font-variant-numeric:tabular-nums;font-size:12px;padding-top:2px}
+.preview{border:1px dashed var(--line);border-radius:10px;padding:10px 14px}
+.preview:empty{display:none}
+.preview .sides{margin-top:0}
 .detail-photos{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
 .detail-photos img{width:100%;border-radius:10px;background:#101014}
 .chips{display:flex;gap:8px;flex-wrap:wrap;color:var(--dim);font-size:13.5px;margin-top:4px}
@@ -260,7 +270,7 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
 .faqs .faq summary::after{content:'+';float:right;color:var(--gold);font-weight:700}
 .faqs .faq[open] summary::after{content:'–'}
 .faqs .faq p{margin:10px 0 0;color:var(--ink-dim);font-size:14px;line-height:1.6}
-@media(max-width:560px){.row,.photos,.detail-photos{grid-template-columns:1fr}.tracklist{columns:1}}
+@media(max-width:560px){.row,.photos,.detail-photos,.sides{grid-template-columns:1fr}.sides.flat .tracklist{columns:1}}
 
 /* ------------------------------------------------------------- recherche */
 .search-hero{max-width:720px;margin:10px auto 26px;text-align:center}

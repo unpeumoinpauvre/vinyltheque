@@ -13,6 +13,7 @@ import { signIn, signOut, readUser, requireAuth } from './auth.js';
 import { sendWelcome, sendReset, sendPasswordChanged, mailReady, baseUrl } from './mail.js';
 import { GUIDES, guideBySlug } from './guides.js';
 import { PAGES, pageBySlug } from './pages.js';
+import { lookupRelease } from './lookup.js';
 import { mountBilling, mountStripeWebhook, FREE_LIMIT, billingReady, isPro, getUser, countVinyls }
   from './billing.js';
 
@@ -395,49 +396,17 @@ app.get('/api/recent/:id/cover', async (req, res) => {
 
 /* -------------------------------------- recherche de titres (MusicBrainz) */
 
+/* Limité par adresse : chaque appel en déclenche plusieurs chez MusicBrainz, qui
+   demande de rester autour d'une requête par seconde. */
 app.get('/api/lookup', async (req, res) => {
   const artist = clean(req.query.artist, 120);
   const title = clean(req.query.title, 120);
   if (!title) return res.status(400).json({ error: 'Titre de l\'album requis.' });
-
-  const headers = { 'User-Agent': 'Vinyltheque/1.0 (collection personnelle de vinyles)' };
-  const q = [`release:"${title}"`, artist ? `artist:"${artist}"` : '', 'format:"Vinyl"']
-    .filter(Boolean).join(' AND ');
+  if (!throttle('lookup:' + req.ip, 20, 60 * 1000))
+    return res.status(429).json({ error: 'Trop de recherches à la suite. Réessayez dans une minute.' });
 
   try {
-    const searchUrl = `https://musicbrainz.org/ws/2/release?query=${encodeURIComponent(q)}&fmt=json&limit=5`;
-    let r = await fetch(searchUrl, { headers });
-    let data = await r.json();
-    let releases = data.releases ?? [];
-
-    if (!releases.length) {
-      const q2 = [`release:"${title}"`, artist ? `artist:"${artist}"` : ''].filter(Boolean).join(' AND ');
-      r = await fetch(`https://musicbrainz.org/ws/2/release?query=${encodeURIComponent(q2)}&fmt=json&limit=5`, { headers });
-      data = await r.json();
-      releases = data.releases ?? [];
-    }
-    if (!releases.length) return res.json({ found: false });
-
-    const best = releases[0];
-    const detail = await (await fetch(
-      `https://musicbrainz.org/ws/2/release/${best.id}?inc=recordings+artist-credits+labels&fmt=json`,
-      { headers }
-    )).json();
-
-    const tracks = [];
-    (detail.media ?? []).forEach((medium, mi) => {
-      const side = medium.position ? String.fromCharCode(64 + medium.position) : String(mi + 1);
-      (medium.tracks ?? []).forEach((t, ti) => tracks.push({ side: `${side}${ti + 1}`, title: t.title }));
-    });
-
-    res.json({
-      found: true,
-      title: detail.title ?? best.title ?? title,
-      artist: (detail['artist-credit'] ?? []).map((a) => a.name).join(', ') || artist,
-      year: (detail.date ?? best.date ?? '').slice(0, 4),
-      label: (detail['label-info'] ?? []).map((l) => l.label?.name).filter(Boolean)[0] ?? '',
-      tracks
-    });
+    res.json(await lookupRelease({ title, artist }));
   } catch (e) {
     console.error(e);
     res.status(502).json({ error: 'Recherche en ligne indisponible.' });
