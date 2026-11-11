@@ -181,6 +181,7 @@ textarea{min-height:120px;resize:vertical;font-size:14px;line-height:1.6}
 .vinyl{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   overflow:hidden;cursor:pointer;transition:transform .12s,border-color .12s}
 .vinyl:hover{transform:translateY(-3px);border-color:#4a4a55}
+.vinyl.fresh{border-color:var(--ok);box-shadow:0 0 0 2px var(--ok)}
 .cover{aspect-ratio:1;background:#101014 center/cover no-repeat;display:grid;place-items:center;
   color:#4b4a52;font-size:30px}
 .vinyl .meta{padding:11px 13px}

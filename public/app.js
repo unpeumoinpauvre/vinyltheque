@@ -541,14 +541,22 @@ function showForm(v = null) {
     btn.disabled = true;
     const fd = new FormData(form);
     fd.set('tracks', JSON.stringify(Reader.fromText(fd.get('tracks'))));
+    const name = String(fd.get('title')).trim();
+    /* Un disque validé deux fois de suite se retrouvait en double. */
+    if (!v && state.vinyls.some((x) => norm(x.title) === norm(name) && norm(x.artist) === norm(String(fd.get('artist')).trim()))
+        && !confirm(`« ${name} » est déjà dans votre collection. L'ajouter une seconde fois ?`)) {
+      btn.disabled = false;
+      return;
+    }
     for (const kind of ['front', 'back']) {
       fd.delete(kind);
       if (shots[kind]?.size) fd.set(kind, shots[kind], kind + '.jpg');
     }
     try {
-      await api(v ? `/api/vinyls/${v.id}` : '/api/vinyls',
+      const d = await api(v ? `/api/vinyls/${v.id}` : '/api/vinyls',
         { method: v ? 'PUT' : 'POST', body: fd });
       closeModal(); await loadMine();
+      reveal(v ? v.id : d.id, v ? `« ${name} » est enregistré.` : `« ${name} » est ajouté à votre collection.`);
     } catch (err) {
       const plein = /gratuite est complète/i.test(err.message);
       $('#f-error').innerHTML = esc(err.message)
@@ -897,6 +905,18 @@ function flash(msg) {
   line.style.color = 'var(--ok)';
   line.textContent = msg;
   setTimeout(() => { line.style.color = ''; renderVerifyBanner(); }, 6000);
+}
+
+/* Après un ajout, le formulaire se ferme sur une collection classée par
+   artiste : le nouveau disque est souvent hors de l'écran et rien ne disait
+   qu'il était enregistré. On le dit, et on amène le disque à l'écran. */
+function reveal(id, msg) {
+  flash(msg);
+  const card = $(`#grid .vinyl[data-id="${id}"]`);
+  if (!card) return;
+  card.classList.add('fresh');
+  card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  setTimeout(() => card.classList.remove('fresh'), 5000);
 }
 
 async function go(path) { history.pushState({}, '', path); await route(); }
