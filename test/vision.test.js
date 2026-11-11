@@ -154,6 +154,30 @@ test('la base parle d\'un autre disque, ou ne répond pas : la lecture seule', a
   assert.deepEqual(c.tracks, []);
 });
 
+test('compilation : chaque titre garde son interprète, la base est cherchée sans artiste', async () => {
+  const comp = {
+    artist: 'Artistes divers', title: 'Chansons de Noël', label: 'Wagram Music', catalog_number: '3386336', year: '2018',
+    tracks: [
+      { side: 'A1', title: 'Tino Rossi – Petit Papa Noël' }, { side: 'A2', title: 'Dalida – Douce Nuit, Sainte Nuit' },
+      { side: 'B1', title: 'Tino Rossi – Il Est Né Le Divin Enfant' }, { side: 'B2', title: 'Dalida – Vive Le Vent' }
+    ]
+  };
+  const edition = {
+    title: 'Chansons de Noël', artist: 'Various Artists', year: '2018', label: 'Wagram Music', hasSides: true,
+    tracks: [['A1', 'Petit Papa Noël'], ['A2', 'Douce nuit, sainte nuit'], ['B1', 'Il est né le divin enfant'], ['B2', 'Vive le vent']]
+      .map(([side, title]) => ({ side, title }))
+  };
+  const asked = [];
+  const d = await readRecord({ back: IMG }, {
+    fetchImpl: fakeClaude([], comp), apiKey: 'k',
+    lookup: async (q) => { asked.push(q); return base(edition)(); }
+  });
+  assert.deepEqual(asked[0], { title: 'Chansons de Noël', artist: '', catno: '3386336' });
+  assert.equal(d.artist, 'Artistes divers');
+  assert.equal(d.confirmed, true, 'les titres de la base se retrouvent dans « Interprète – Titre »');
+  assert.equal(d.tracks[0].title, 'Tino Rossi – Petit Papa Noël');
+});
+
 test('rapprochement des titres : le même d\'abord, un titre court ne vole pas la place d\'un long', () => {
   const edition = [{ side: 'A1', title: 'Ballade de Melody Nelson' }, { side: 'A2', title: 'Melody' }, { side: 'B1', title: 'En Melody' }];
   const read = [{ side: '1', title: 'Melody' }, { side: '2', title: 'Ballade de Melody Nelson' }, { side: '3', title: 'En Melody' }];

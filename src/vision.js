@@ -25,6 +25,7 @@ You receive one or two photos of the same record: the front of the sleeve, the b
 Report what is printed on these photos.
 
 - artist, title: the artist and the album title as printed. Use normal capitalisation even when the sleeve is in capitals. Keep the original language and its accents.
+  - On a compilation where the tracks are by different performers, artist is "Artistes divers".
 - label: the record company (for example "Philips", "Blue Note"). Empty string if not visible.
 - catalog_number: the catalogue number as printed (for example "PCS 7088", "6325 071"). Not the barcode. Empty string if not visible.
 - year: the four-digit year printed for this record (the ℗ or © line; the earliest one if there are several). Empty string if no year is printed.
@@ -32,6 +33,7 @@ Report what is printed on these photos.
   - side: the side letter followed by the position on that side: "A1", "A2", "B1"… "Side One", "Side 1", "Face A", "Face 1", "Seite 1", "Lado A" all mean side A; the next side is B; double albums continue with C and D.
   - If the sleeve lists the tracks without saying where the sides change, give every track an empty side ("").
   - title: the track title only. No track number, no duration, no writer or publisher credits, no performer notes. Normal capitalisation, original language and accents.
+  - Only on such a compilation, put the performer of each track before its title, separated by a spaced dash: "Tino Rossi – Petit Papa Noël".
 - If the track list is not printed on these photos, return an empty tracks list. Never list tracks from memory: only what you can read here.
 - If the photos do not show a record sleeve, or nothing can be read, return empty strings and an empty list.`;
 
@@ -232,7 +234,10 @@ export async function readRecord(images, { lookup = lookupRelease, ...deps } = {
   if (!ai.title) return out;
 
   let found = null;
-  try { found = await lookup({ title: ai.title, artist: ai.artist, catno: ai.catalog }); }
+  /* Une compilation n'a pas d'artiste à chercher : la base la range sous
+     « Various Artists », pas sous ce que nous écrivons. */
+  const various = /^(artistes? divers|various( artists)?|divers|compilation)$/i.test(ai.artist);
+  try { found = await lookup({ title: ai.title, artist: various ? '' : ai.artist, catno: ai.catalog }); }
   catch (e) { console.error('[ia] recoupement MusicBrainz impossible :', e.message); }
   const cands = found?.found ? (found.candidates?.length ? found.candidates : [found]) : [];
   if (!cands.length) return out;
