@@ -13,6 +13,8 @@ import { signIn, signOut, readUser, requireAuth } from './auth.js';
 import { sendWelcome, sendReset, sendPasswordChanged, mailReady, baseUrl } from './mail.js';
 import { GUIDES, guideBySlug } from './guides.js';
 import { PAGES, pageBySlug } from './pages.js';
+import { lookupRelease } from './lookup.js';
+import { readRecord, forVision, visionReady, takeQuota } from './vision.js';
 import { mountBilling, mountStripeWebhook, FREE_LIMIT, billingReady, isPro, getUser, countVinyls }
   from './billing.js';
 
@@ -154,13 +156,13 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/logout', (req, res) => { signOut(res); res.json({ ok: true }); });
 
 app.get('/api/me', async (req, res) => {
-  if (!req.user) return res.json({ user: null });
+  if (!req.user) return res.json({ user: null, ai: visionReady() });
   const { rows } = await pool.query(
     `SELECT id, username, email, is_public, email_verified, plan, plan_renews_at
        FROM users WHERE id = $1`, [req.user.id]);
   const u = rows[0] ?? null;
   if (u) u.pro = isPro(u);
-  res.json({ user: u, mail: mailReady(), billing: billingReady(), limit: FREE_LIMIT });
+  res.json({ user: u, mail: mailReady(), billing: billingReady(), limit: FREE_LIMIT, ai: visionReady() });
 });
 
 /* --------------------------------------- vérification & mot de passe oublié */
@@ -395,52 +397,60 @@ app.get('/api/recent/:id/cover', async (req, res) => {
 
 /* -------------------------------------- recherche de titres (MusicBrainz) */
 
+/* Limité par adresse : chaque appel en déclenche plusieurs chez MusicBrainz, qui
+   demande de rester autour d'une requête par seconde. */
 app.get('/api/lookup', async (req, res) => {
   const artist = clean(req.query.artist, 120);
   const title = clean(req.query.title, 120);
   if (!title) return res.status(400).json({ error: 'Titre de l\'album requis.' });
-
-  const headers = { 'User-Agent': 'Vinyltheque/1.0 (collection personnelle de vinyles)' };
-  const q = [`release:"${title}"`, artist ? `artist:"${artist}"` : '', 'format:"Vinyl"']
-    .filter(Boolean).join(' AND ');
+  if (!throttle('lookup:' + req.ip, 20, 60 * 1000))
+    return res.status(429).json({ error: 'Trop de recherches à la suite. Réessayez dans une minute.' });
 
   try {
-    const searchUrl = `https://musicbrainz.org/ws/2/release?query=${encodeURIComponent(q)}&fmt=json&limit=5`;
-    let r = await fetch(searchUrl, { headers });
-    let data = await r.json();
-    let releases = data.releases ?? [];
-
-    if (!releases.length) {
-      const q2 = [`release:"${title}"`, artist ? `artist:"${artist}"` : ''].filter(Boolean).join(' AND ');
-      r = await fetch(`https://musicbrainz.org/ws/2/release?query=${encodeURIComponent(q2)}&fmt=json&limit=5`, { headers });
-      data = await r.json();
-      releases = data.releases ?? [];
-    }
-    if (!releases.length) return res.json({ found: false });
-
-    const best = releases[0];
-    const detail = await (await fetch(
-      `https://musicbrainz.org/ws/2/release/${best.id}?inc=recordings+artist-credits+labels&fmt=json`,
-      { headers }
-    )).json();
-
-    const tracks = [];
-    (detail.media ?? []).forEach((medium, mi) => {
-      const side = medium.position ? String.fromCharCode(64 + medium.position) : String(mi + 1);
-      (medium.tracks ?? []).forEach((t, ti) => tracks.push({ side: `${side}${ti + 1}`, title: t.title }));
-    });
-
-    res.json({
-      found: true,
-      title: detail.title ?? best.title ?? title,
-      artist: (detail['artist-credit'] ?? []).map((a) => a.name).join(', ') || artist,
-      year: (detail.date ?? best.date ?? '').slice(0, 4),
-      label: (detail['label-info'] ?? []).map((l) => l.label?.name).filter(Boolean)[0] ?? '',
-      tracks
-    });
+    res.json(await lookupRelease({ title, artist }));
   } catch (e) {
     console.error(e);
     res.status(502).json({ error: 'Recherche en ligne indisponible.' });
+  }
+});
+
+/* Lecture des deux photos par l'IA. Les photos viennent du formulaire ; pour
+   une fiche déjà enregistrée (id), celles qui manquent sont reprises en base.
+   `code` dit au navigateur pourquoi l'IA n'a pas servi : il repasse alors à la
+   lecture intégrée, sans rien demander à la personne. */
+app.post('/api/read', requireAuth, photoFields, async (req, res) => {
+  if (!visionReady()) return res.status(503).json({ error: "La lecture par IA n'est pas activée.", code: 'off' });
+  try {
+    const shots = {};
+    for (const kind of ['front', 'back']) {
+      const file = req.files?.[kind]?.[0];
+      if (file) shots[kind] = file.buffer;
+    }
+    const id = Number(req.body?.id);
+    if (id && (!shots.front || !shots.back)) {
+      const { rows } = await pool.query(
+        `SELECT i.kind, i.data FROM images i JOIN vinyls v ON v.id = i.vinyl_id
+          WHERE i.vinyl_id = $1 AND v.user_id = $2`, [id, req.user.id]);
+      for (const r of rows) if (!shots[r.kind]) shots[r.kind] = r.data;
+    }
+    if (!shots.front && !shots.back) return res.status(400).json({ error: "Ajoutez d'abord au moins une photo.", code: 'photo' });
+
+    const q = takeQuota(req.user.id);
+    if (!q.ok) {
+      return res.status(429).json({
+        code: 'quota',
+        error: q.why === 'compte'
+          ? "Vous avez atteint le nombre de lectures par IA pour aujourd'hui."
+          : "La lecture par IA a atteint son plafond du jour."
+      });
+    }
+
+    const images = {};
+    for (const kind of Object.keys(shots)) images[kind] = await forVision(shots[kind]);
+    res.json(await readRecord(images));
+  } catch (e) {
+    console.error('[ia]', e.message);
+    res.status(502).json({ error: 'La lecture par IA est indisponible pour le moment.', code: 'down' });
   }
 });
 
@@ -510,9 +520,9 @@ function renderPage(req, res, opts = {}) {
    deux sources séparées finiraient par diverger. */
 const FAQ = [
   ['Comment les titres des morceaux se remplissent-ils tout seuls ?',
-   "Vous photographiez le recto et le verso du disque. Vinylthèque lit la pochette "
-   + "(reconnaissance de caractères) directement dans votre navigateur, puis complète "
-   + "l'artiste, l'année, le label et la liste des pistes à partir de MusicBrainz."],
+   "Vous photographiez le recto et le verso du disque. Une intelligence artificielle lit "
+   + "les deux photos : nom du disque, artiste, année, label et titres, face par face. "
+   + "Le résultat est ensuite recoupé avec MusicBrainz, la base de données musicale ouverte."],
   ['Puis-je savoir sur quel vinyle se trouve un morceau ?',
    "Oui. L'onglet Recherche cherche à la fois dans les noms d'albums, les artistes, "
    + "les labels et les titres de pistes : vous tapez un morceau, Vinylthèque vous dit "
@@ -524,7 +534,9 @@ const FAQ = [
    + "jamais indiquer à qui ils appartiennent."],
   ["Que deviennent les photos que j'envoie ?",
    "Elles sont recadrées sur la pochette et réencodées avant publication : toutes les "
-   + "métadonnées, y compris la localisation et le modèle d'appareil, sont supprimées."],
+   + "métadonnées, y compris la localisation et le modèle d'appareil, sont supprimées. "
+   + "Pour la lecture automatique, elles sont transmises à l'IA Claude (Anthropic), sans "
+   + "aucune information sur votre compte."],
   ['Combien ça coûte ?',
    `C'est gratuit jusqu'à ${FREE_LIMIT} vinyles. Au-delà, l'abonnement Pro coûte 5 € par `
    + "mois ou 50 € par an, soit deux mois offerts, et se résilie en un clic."]

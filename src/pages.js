@@ -29,10 +29,12 @@ export const PAGES = [
       },
       {
         h: 'Comment ça marche techniquement',
-        p: ["La lecture des pochettes se fait dans votre navigateur, par reconnaissance de "
-          + "caractères : les photos ne partent pas sur un service tiers d'analyse d'images. Les "
-          + 'informations manquantes sont complétées à partir de MusicBrainz, la base de données '
-          + 'musicale ouverte.',
+        p: ["La lecture des pochettes est confiée à une intelligence artificielle, Claude, "
+          + "éditée par Anthropic : les photos du recto et du verso lui sont transmises le temps "
+          + "de la lecture, sans votre nom, votre adresse e-mail ni aucune autre information de "
+          + "compte. Quand ce service n'est pas disponible, la lecture se fait dans votre "
+          + 'navigateur, par reconnaissance de caractères. Le résultat est recoupé avec '
+          + 'MusicBrainz, la base de données musicale ouverte.',
           'Avant publication, chaque photo est recadrée sur la pochette et réencodée : toutes les '
           + "métadonnées du fichier d'origine, y compris la localisation et le modèle d'appareil, "
           + 'disparaissent au passage.']
@@ -119,7 +121,9 @@ export const PAGES = [
           + 'appartiennent.',
           'Nous ne vendons ni ne louons aucune donnée. Les seuls tiers qui en traitent une partie '
           + "sont ceux qui font fonctionner le service : Railway (hébergement), Stripe (paiement), "
-          + 'Resend (envoi des e-mails de compte) et Cloudflare (résolution DNS).']
+          + 'Resend (envoi des e-mails de compte), Cloudflare (résolution DNS) et Anthropic '
+          + '(États-Unis), pour la lecture automatique des pochettes : seules les photos du '
+          + 'disque lui sont transmises, le temps de la lecture, sans information de compte.']
       },
       {
         h: 'Combien de temps',

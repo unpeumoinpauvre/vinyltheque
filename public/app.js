@@ -4,12 +4,16 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { me: null, vinyls: [], filter: '', billing: null };
+const state = { me: null, vinyls: [], filter: '', billing: null, ai: false };
 
 async function api(url, opts = {}) {
   const res = await fetch(url, { credentials: 'same-origin', ...opts });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Erreur réseau');
+  if (!res.ok) {
+    const err = new Error(data.error || 'Erreur réseau');
+    err.status = res.status; err.code = data.code;
+    throw err;
+  }
   return data;
 }
 
@@ -83,9 +87,9 @@ async function reencode(file, max = 1600) {
   return await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.9));
 }
 
-/* Renvoie un JPEG recadré, ou null si la détection n'est pas fiable
+/* Zone de la pochette dans la photo, ou null si la détection n'est pas fiable
    (on préfère garder la photo entière plutôt que couper la pochette). */
-async function cropCover(file) {
+async function cropBox(file) {
   try {
     const cv = await toCanvas(file, 1600);
     const W = cv.width, H = cv.height;
@@ -108,193 +112,25 @@ async function cropCover(file) {
       const cy = Math.min(Math.max((y0 + y1) / 2, side / 2), H - side / 2);
       sx = cx - side / 2; sy = cy - side / 2; sw = sh = side;
     }
-
-    const scale = Math.min(1, 1400 / Math.max(sw, sh));
-    const out = document.createElement('canvas');
-    out.width = Math.round(sw * scale); out.height = Math.round(sh * scale);
-    out.getContext('2d').drawImage(cv, Math.round(sx), Math.round(sy), Math.round(sw), Math.round(sh),
-      0, 0, out.width, out.height);
-    return await new Promise((res) => out.toBlob(res, 'image/jpeg', 0.9));
+    return { cv, sx, sy, sw, sh, frac: { x: sx / W, y: sy / H, w: sw / W, h: sh / H } };
   } catch { return null; }
 }
 
-/* ------------------------------------------------------------ OCR photo */
-
-const NOISE_RE = /^(stereo|mono|\d{2,3}\s?(rpm|t\/min)|all rights|tous droits|made in|printed|manufactur|distribut|executive produc|recorded at|enregistr|master(ed|ing) (by|at)|mix(ed|ing) (by|at)|remaster|artwork|design by|photograph|publish|licen|under exclusive|marketing by|total time|dur[ée]e totale|℗|©|\(p\)\s|\(c\)\s|www\.|http|[0-9]{8,})/i;
-
-const SIDE_RE   = /^(?:face|side|c[oô]t[ée])\s*[:.\-]?\s*([A-D1-4])\b/i;
-const LABEL_RE  = /\b(records?|recordings?|music|musik|entertainment|editions?|productions?)\b/i;
-const SEQ = 'ABCDEFGH';
-
-function stripEdges(t) {
-  return t.replace(/^[^0-9A-Za-zÀ-ÿ(«"]+/, '').replace(/[\s.,;:'"«»\-–_\[\]{}|]+$/, '').trim();
+/* Renvoie { blob, frac } : le JPEG recadré à envoyer et la zone gardée, en
+   fractions de la photo d'origine. null si aucun recadrage n'est possible. */
+async function cropCover(file) {
+  const b = await cropBox(file);
+  if (!b) return null;
+  const scale = Math.min(1, 1400 / Math.max(b.sw, b.sh));
+  const out = document.createElement('canvas');
+  out.width = Math.round(b.sw * scale); out.height = Math.round(b.sh * scale);
+  out.getContext('2d').drawImage(b.cv, Math.round(b.sx), Math.round(b.sy), Math.round(b.sw), Math.round(b.sh),
+    0, 0, out.width, out.height);
+  const blob = await new Promise((res) => out.toBlob(res, 'image/jpeg', 0.9));
+  return blob ? { blob, frac: b.frac } : null;
 }
 
-/* Rejette le bruit d'OCR sans être trop gourmand : on ne compte comme
-   « fragment » que les morceaux d'une seule lettre ou chiffre, pas la
-   ponctuation (&, -, /) qui est normale dans un titre. */
-function looksLikeTitle(t, raw = t) {
-  if (NOISE_RE.test(raw)) return false;                 // mention légale avant nettoyage
-  if (LABEL_RE.test(t) && /\b(19|20)\d{2}\b/.test(t)) return false;  // « ℗ 2013 X Records »
-  if (t.length < 3 || t.length > 110) return false;
-  const letters = (t.match(/[a-zA-ZÀ-ÿ]/g) || []).length;
-  if (letters < 3 || letters / t.length < 0.5) return false;
-  const words = t.split(/\s+/).filter((w) => /[a-zA-ZÀ-ÿ0-9]/.test(w));
-  const tiny = words.filter((w) => w.replace(/[^a-zA-ZÀ-ÿ0-9]/g, '').length <= 1).length;
-  if (words.length >= 4 && tiny / words.length > 0.4) return false;
-  if (/^[IVX]+$/i.test(t)) return false;
-  return !NOISE_RE.test(t);
-}
-
-function parseTracks(lines, minConf = 50) {
-  const out = [];
-  const counts = {};
-  const used = new Set();
-  let side = '';
-
-  /* Une pochette double réutilise « SIDE A / SIDE B » sur le second
-     disque : on décale alors vers la lettre libre suivante (A B puis C D). */
-  const takeSide = (letter) => {
-    let i = SEQ.indexOf(letter);
-    if (i < 0) return letter;
-    while (i < SEQ.length && used.has(SEQ[i])) i++;
-    const L = SEQ[i] || letter;
-    used.add(L);
-    return L;
-  };
-
-  for (const raw of lines) {
-    if ((raw.conf ?? 100) < minConf) continue;
-    const rawLine = String(raw.text).replace(/[|_•·¤~^“”]/g, ' ').replace(/\s+/g, ' ').trim();
-    let line = stripEdges(rawLine);
-    if (!line) continue;
-
-    const sh = line.match(SIDE_RE);
-    if (sh) { side = takeSide(sh[1].toUpperCase()); continue; }
-    if (/^[A-D]$/.test(line)) { side = takeSide(line); continue; }
-
-    let num = '';
-    const m = line.match(/^([A-D]?\s?\d{1,2})\s*[.\)\-–:]\s+(.*)$/);
-    if (m) { num = m[1].replace(/\s/g, '').toUpperCase(); line = m[2]; }
-
-    line = stripEdges(line
-      .replace(/\(?\b\d{1,2}[:.'’]\d{2}\b\)?\s*$/, '')   // durée en fin de ligne
-    );
-
-    if (!looksLikeTitle(line, rawLine)) continue;
-    if (out.some((o) => o.title.toLowerCase() === line.toLowerCase())) continue;
-
-    const key = side || '_';
-    counts[key] = (counts[key] || 0) + 1;
-    out.push({
-      side: /^[A-D]\d/.test(num) ? num
-        : side ? side + (num.replace(/\D/g, '') || counts[key])
-        : num,
-      title: line
-    });
-  }
-  return out.slice(0, 60);
-}
-
-/* Titre de l'album = le texte le plus grand de la pochette recto. */
-function guessTitle(lines) {
-  const cands = lines
-    .map((l) => ({ ...l, text: stripEdges(String(l.text).replace(/\s+/g, ' ')) }))
-    .filter((l) => (l.conf ?? 0) >= 45 && l.text.length >= 2 && l.text.length <= 60
-      && /[a-zA-ZÀ-ÿ]{2}/.test(l.text) && !NOISE_RE.test(l.text))
-    .sort((a, b) => (b.h || 0) - (a.h || 0));
-  return cands[0]?.text || '';
-}
-
-const guessYear = (lines) => (lines.map((l) => l.text).join(' ').match(/\b(19|20)\d{2}\b/) || [''])[0];
-
-function guessLabel(lines) {
-  const hit = lines.find((l) => (l.conf ?? 0) >= 55 && LABEL_RE.test(l.text) && l.text.length <= 45);
-  if (!hit) return '';
-  return stripEdges(String(hit.text).replace(/\s+/g, ' ')
-    .replace(/^(?:[℗©]|\((?:p|c)\)|\s)+/i, '')      // « ℗ », « (P) »
-    .replace(/^(?:19|20)\d{2}\s*/, '')              // année en tête
-    .replace(/\s*(?:19|20)\d{2}$/, ''));            // année en fin
-}
-
-/* Met la photo en niveaux de gris, étire le contraste, agrandit,
-   et inverse si le texte est clair sur fond sombre (Tesseract lit
-   beaucoup mieux du texte foncé sur fond clair). */
-async function prepare(file) {
-  const bmp = await createImageBitmap(file);
-  const scale = Math.min(2.5, Math.max(1, 2400 / Math.max(bmp.width, bmp.height)));
-  const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
-  const cv = document.createElement('canvas');
-  cv.width = w; cv.height = h;
-  const ctx = cv.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(bmp, 0, 0, w, h);
-
-  const img = ctx.getImageData(0, 0, w, h), d = img.data;
-  const hist = new Uint32Array(256);
-  let sum = 0;
-  for (let i = 0; i < d.length; i += 4) {
-    const g = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
-    d[i] = d[i + 1] = d[i + 2] = g; hist[g]++; sum += g;
-  }
-  const px = d.length / 4, mean = sum / px;
-  let lo = 0, hi = 255, acc = 0;
-  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > px * 0.02) { lo = v; break; } }
-  acc = 0;
-  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > px * 0.02) { hi = v; break; } }
-  const span = Math.max(1, hi - lo), dark = mean < 120;
-
-  for (let i = 0; i < d.length; i += 4) {
-    let g = ((d[i] - lo) / span) * 255;
-    g = g < 0 ? 0 : g > 255 ? 255 : g;
-    if (dark) g = 255 - g;
-    d[i] = d[i + 1] = d[i + 2] = g;
-  }
-  ctx.putImageData(img, 0, 0);
-  return cv;
-}
-
-/* Le lecteur de pochettes pèse près d'un mégaoctet : il ne se télécharge
-   qu'au moment où l'on ajoute vraiment une photo, pas sur chaque page. */
-const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
-let tesseractLoading = null;
-
-function loadTesseract() {
-  if (window.Tesseract) return Promise.resolve();
-  if (!tesseractLoading) {
-    tesseractLoading = new Promise((resolve, reject) => {
-      const tag = document.createElement('script');
-      tag.src = TESSERACT_URL;
-      tag.onload = resolve;
-      tag.onerror = () => {
-        tesseractLoading = null;
-        reject(new Error("Le lecteur de pochettes n'a pas pu être chargé. Vérifiez votre connexion."));
-      };
-      document.head.appendChild(tag);
-    });
-  }
-  return tesseractLoading;
-}
-
-async function ocrLines(file, onProgress) {
-  await loadTesseract();
-  const source = await prepare(file);
-  const worker = await Tesseract.createWorker(['fra', 'eng'], 1, {
-    logger: (m) => m.status === 'recognizing text' && onProgress(Math.round(m.progress * 100))
-  });
-  try {
-    await worker.setParameters({ user_defined_dpi: '300', preserve_interword_spaces: '1' });
-    const { data } = await worker.recognize(source, {}, { text: true, blocks: true });
-    const lines = [];
-    (data.blocks || []).forEach((b) => (b.paragraphs || []).forEach((p) => (p.lines || []).forEach((l) =>
-      lines.push({
-        text: l.text,
-        conf: l.confidence ?? 100,
-        h: l.bbox ? l.bbox.y1 - l.bbox.y0 : 0
-      }))));
-    if (!lines.length) (data.text || '').split('\n').forEach((t) => lines.push({ text: t, conf: 100, h: 0 }));
-    return lines;
-  } finally { await worker.terminate(); }
-}
+/* La lecture des pochettes (OCR, colonnes, faces) vit dans reader.js. */
 
 /* ------------------------------------------------------------- rendu UI */
 
@@ -383,6 +219,19 @@ const closeModal = () => modal.classList.add('hidden');
 modal.addEventListener('click', (e) => { if (e.target === modal || e.target.dataset.close !== undefined) closeModal(); });
 document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
 
+/* Liste des titres, face par face : « Face A » puis ses pistes numérotées,
+   « Face B »… Sans face connue, une simple liste numérotée. */
+function tracksHtml(tracks) {
+  const groups = Reader.groupBySide(tracks);
+  const sided = groups.some((g) => g.letter);
+  const block = (g) => `<section class="side-block">
+      ${g.letter ? `<h4>Face ${esc(g.letter)}</h4>` : ''}
+      <ol class="tracklist">${g.tracks.map((t) =>
+        `<li><span class="n">${t.n}</span><span>${esc(t.title)}</span></li>`).join('')}</ol>
+    </section>`;
+  return `<div class="sides${sided ? '' : ' flat'}">${groups.map(block).join('')}</div>`;
+}
+
 function showDetail(v) {
   if (!v) return;
   const own = Boolean(state.me);
@@ -399,10 +248,7 @@ function showDetail(v) {
     </div>
     ${v.notes ? `<p class="hint">${esc(v.notes)}</p>` : ''}
     <h3 style="margin:16px 0 0;font-size:15px">Titres</h3>
-    ${v.tracks?.length
-      ? `<ul class="tracklist">${v.tracks.map((t) =>
-          `<li><span class="side">${esc(t.side || '')}</span>${esc(t.title)}</li>`).join('')}</ul>`
-      : `<p class="hint">Aucun titre enregistré.</p>`}
+    ${v.tracks?.length ? tracksHtml(v.tracks) : `<p class="hint">Aucun titre enregistré.</p>`}
     ${own ? `<div class="actions">
       <button class="btn" id="d-edit">Modifier</button>
       <button class="btn danger" id="d-del">Supprimer</button>
@@ -420,13 +266,9 @@ function showDetail(v) {
 
 /* ----------------------------------------------------- formulaire vinyle */
 
-/* Complète les champs depuis MusicBrainz.
-   onlyEmpty : ne touche pas à ce qui est déjà renseigné.
-   keepTracks : garde la liste lue sur la photo si elle est déjà fournie. */
-async function completeOnline(form, { onlyEmpty = true, keepTracks = false } = {}) {
-  const q = new URLSearchParams({ title: form.title.value, artist: form.artist.value });
-  const d = await api('/api/lookup?' + q);
-  if (!d.found) return [];
+/* Remplit artiste, année, label depuis une édition trouvée en ligne.
+   onlyEmpty : ne touche pas à ce qui est déjà renseigné. */
+function fillMeta(form, c, onlyEmpty) {
   const filled = [];
   const set = (field, value, label) => {
     if (!value) return;
@@ -434,19 +276,20 @@ async function completeOnline(form, { onlyEmpty = true, keepTracks = false } = {
     form[field].value = value;
     filled.push(label);
   };
-  set('artist', d.artist, 'artiste');
-  set('year', d.year, 'année');
-  set('label', d.label, 'label');
-  const current = form.tracks.value.split('\n').filter((l) => l.trim()).length;
-  if (d.tracks?.length && (!keepTracks || current < d.tracks.length - 2)) {
-    form.tracks.value = d.tracks.map((x) => `${x.side}. ${x.title}`).join('\n');
-    filled.push(`${d.tracks.length} titres (en ligne)`);
-  }
+  set('artist', c.artist, 'artiste');
+  set('year', c.year, 'année');
+  set('label', c.label, 'label');
   return filled;
 }
 
+async function lookupOnline(form) {
+  const q = new URLSearchParams({ title: form.title.value.trim(), artist: form.artist.value.trim() });
+  const d = await api('/api/lookup?' + q);
+  if (!d.found) return [];
+  return d.candidates?.length ? d.candidates : [d];
+}
+
 function showForm(v = null) {
-  const t = (v?.tracks || []).map((x) => `${x.side ? x.side + '. ' : ''}${x.title}`).join('\n');
   openModal(`
     <h2 style="margin:0 0 14px">${v ? 'Modifier le vinyle' : 'Ajouter un vinyle'}</h2>
     <form id="f-vinyl" class="stack">
@@ -475,9 +318,12 @@ function showForm(v = null) {
         <button type="button" class="btn primary" id="btn-ocr">Remplir automatiquement</button>
         <button type="button" class="btn" id="btn-online">Compléter depuis MusicBrainz</button>
       </div>
-      <p class="hint" id="auto-status">Lit les deux photos (titres, nom, année, label) puis complète ce qui manque via MusicBrainz.</p>
-      <label>Titres <small>(un par ligne — « A1. Titre » ou juste le titre)</small>
-        <textarea name="tracks">${esc(t)}</textarea></label>
+      <p class="hint" id="auto-status">${state.ai
+        ? 'Ajoutez le recto et le verso : le nom, l\'artiste, l\'année, le label et les titres face par face se remplissent tout seuls.'
+        : 'Lit le verso (titres, face A / face B), puis vérifie la liste avec MusicBrainz quand le disque y figure.'}</p>
+      <label>Titres <small>(un par ligne : « A1. Titre », « B2. Titre »… ou une ligne « Face B » avant les titres de la face)</small>
+        <textarea name="tracks">${esc(Reader.toText(v?.tracks || []))}</textarea></label>
+      <div id="tracks-preview" class="preview"></div>
       <label>Notes<textarea name="notes" style="min-height:60px">${esc(v?.notes)}</textarea></label>
       <p class="error" id="f-error"></p>
       <div class="actions">
@@ -489,78 +335,181 @@ function showForm(v = null) {
   const form = $('#f-vinyl');
   const status = $('#auto-status');
   const shots = { front: null, back: null };   // ce qui sera réellement envoyé
+  const crops = { front: null, back: null };   // zone de la pochette dans la photo d'origine
+  /* Champs corrigés à la main dans ce formulaire : la lecture automatique n'y touche plus. */
+  const typed = new Set();
+  for (const f of ['title', 'artist', 'year', 'label']) form[f].addEventListener('input', () => typed.add(f));
+  let autoRead = false;                        // la lecture s'est déjà lancée d'elle-même
+
+  /* Aperçu face par face de ce qui sera enregistré, mis à jour à la frappe. */
+  const preview = () => {
+    const list = Reader.fromText(form.tracks.value);
+    $('#tracks-preview').innerHTML = list.length ? tracksHtml(list) : '';
+  };
+  const setTracks = (list) => { form.tracks.value = Reader.toText(list); preview(); };
+  form.tracks.oninput = preview;
+  preview();
 
   async function handlePhoto(kind) {
     const file = form[kind].files?.[0];
     const img = $(kind === 'front' ? '#pv-front' : '#pv-back');
-    if (!file) { shots[kind] = null; return; }
+    if (!file) { shots[kind] = null; crops[kind] = null; return; }
     status.textContent = 'Préparation de la photo…';
-    let blob = $('#autocrop').checked ? await cropCover(file) : null;
-    const cropped = !!blob;
-    if (!blob) blob = await reencode(file);   // même sans recadrage : métadonnées retirées
-    status.textContent = (cropped
+    const crop = $('#autocrop').checked ? await cropCover(file) : null;
+    const blob = crop ? crop.blob : await reencode(file);   // même sans recadrage : métadonnées retirées
+    status.textContent = (crop
       ? 'Photo recadrée sur la pochette'
       : 'Contour non détecté : photo gardée entière')
       + ' — métadonnées (lieu, appareil, date) supprimées.';
     shots[kind] = blob;
+    crops[kind] = crop ? crop.frac : null;
     img.src = URL.createObjectURL(blob);
     img.hidden = false;
+    /* Les deux photos d'un nouveau disque sont là : la lecture part toute seule. */
+    if (state.ai && !v && !autoRead && form.front.files?.[0] && form.back.files?.[0]) {
+      autoRead = true;
+      $('#btn-ocr').click();
+    }
+  }
+
+  /* Lecture par l'IA : les deux photos partent au serveur, qui rend la fiche
+     remplie. Photo entière (sans recadrage : rien ne doit manquer), 2000 px. */
+  async function readWithAi() {
+    const fd = new FormData();
+    for (const kind of ['front', 'back']) {
+      const file = form[kind].files?.[0];
+      if (file) fd.set(kind, await reencode(file, 2000), kind + '.jpg');
+    }
+    if (v) fd.set('id', v.id);
+    const d = await api('/api/read', { method: 'POST', body: fd });
+
+    const done = [];
+    const put = (field, value, label) => {
+      if (!value || typed.has(field)) return;
+      form[field].value = value;
+      done.push(label);
+    };
+    put('title', d.title, 'nom'); put('artist', d.artist, 'artiste');
+    put('year', d.year, 'année'); put('label', d.label, 'label');
+    if (d.tracks?.length) {
+      setTracks(d.tracks);
+      const faces = new Set(d.tracks.map((t) => Reader.splitSide(t.side).letter).filter(Boolean)).size;
+      const how = d.how === 'base' ? 'repris de MusicBrainz (liste absente des photos)'
+        : 'lus sur la pochette' + (d.how === 'photo+faces' ? ', faces reprises de MusicBrainz' : '')
+          + (d.confirmed ? ', confirmés par MusicBrainz' : '');
+      done.push(`${d.tracks.length} titres ${how}${faces ? ` (${faces} face${faces > 1 ? 's' : ''})` : ''}`);
+    }
+    if (!done.length) {
+      status.textContent = "Rien de lisible sur ces photos : reprenez-les bien à plat, sans reflet, ou saisissez le nom du vinyle.";
+      return;
+    }
+    status.innerHTML = `<span class="ok">Rempli : ${done.map(esc).join(', ')}.</span> Vérifiez avant d'enregistrer.`
+      + (d.tracks?.length && !d.hasSides ? " La pochette n'indique pas les faces : ajoutez une ligne « Face B » avant le premier titre de la face B." : '')
+      + (d.tracks?.length ? '' : " La liste des titres n'est pas sur ces photos.");
   }
 
   form.front.onchange = () => handlePhoto('front');
   form.back.onchange  = () => handlePhoto('back');
   $('#autocrop').onchange = async () => { await handlePhoto('front'); await handlePhoto('back'); };
 
+  /* Photo à lire : celle qu'on vient de choisir, dans sa définition d'origine
+     (les petits caractères en dépendent) ; à défaut, celle déjà enregistrée sur
+     la fiche, pour pouvoir relancer la lecture d'un disque déjà saisi. */
+  async function source(kind) {
+    const file = form[kind].files?.[0];
+    if (file) return { file, crop: crops[kind] };
+    if (v?.[kind === 'front' ? 'has_front' : 'has_back']) {
+      const r = await fetch(`/api/vinyls/${v.id}/image/${kind}`, { credentials: 'same-origin' });
+      if (r.ok) return { file: await r.blob(), crop: null };
+    }
+    return null;
+  }
+
   $('#btn-ocr').onclick = async (e) => {
-    const back  = shots.back  || form.back.files?.[0];
-    const front = shots.front || form.front.files?.[0];
-    if (!back && !front) { status.textContent = "Ajoutez d'abord au moins une photo."; return; }
+    if (e.target.disabled) return;
     e.target.disabled = true;
     const done = [];
     try {
-      /* 1. verso → liste des titres */
-      let backLines = [];
-      if (back || front) {
-        const src = back || front;
-        status.textContent = 'Lecture de la liste des titres… 0 %';
-        backLines = await ocrLines(src, (p) => status.textContent = `Lecture de la liste des titres… ${p} %`);
-        let tracks = parseTracks(backLines, 50);
-        if (tracks.length < 4) tracks = parseTracks(backLines, 25);
-        if (tracks.length) {
-          form.tracks.value = tracks.map((x) => `${x.side ? x.side + '. ' : ''}${x.title}`).join('\n');
-          done.push(`${tracks.length} titres`);
+      if (state.ai) {
+        const any = ['front', 'back'].some((k) => form[k].files?.[0] || v?.[k === 'front' ? 'has_front' : 'has_back']);
+        if (!any) { status.textContent = "Ajoutez d'abord au moins une photo."; return; }
+        status.textContent = 'Lecture des photos… (une dizaine de secondes)';
+        try { await readWithAi(); return; }
+        catch (err) {
+          /* IA indisponible ou plafond atteint : la lecture intégrée prend le relais. */
+          console.warn('Lecture IA :', err.message);
+          status.textContent = (err.code === 'quota' ? err.message : 'Lecture rapide indisponible.') + ' Lecture intégrée en cours…';
         }
+      }
+      const back = await source('back'), front = await source('front');
+      if (!back && !front) { status.textContent = "Ajoutez d'abord au moins une photo."; return; }
+
+      /* 1. verso → liste des titres, face par face */
+      const src = back || front;
+      const progress = (label) => (p) => { status.textContent = `${label}… ${p} %`; };
+      status.textContent = 'Lecture de la liste des titres… 0 %';
+      let page = await Reader.ocr(src.file, { crop: src.crop, flatten: true, onProgress: progress('Lecture de la liste des titres') });
+      const best = (pg) => {
+        const a = Reader.readTracks(pg);
+        if (a.length >= 4) return a;
+        const b = Reader.readTracks(pg, { minConf: 25 });       // photo floue : on accepte le douteux
+        return b.length > a.length ? b : a;
+      };
+      let read = best(page);
+      if (read.length < 3) {
+        /* Rien de net : seconde lecture avec un simple réglage de contraste, qui
+           réussit mieux sur certaines pochettes très illustrées. */
+        const page2 = await Reader.ocr(src.file, { crop: src.crop, flatten: false, onProgress: progress('Seconde lecture') });
+        const read2 = best(page2);
+        if (read2.length > read.length) { read = read2; page = page2; }
       }
 
       /* 2. recto → nom de l'album, si le champ est vide */
-      let frontLines = [];
+      let frontPage = null;
       if (front && back && !form.title.value.trim()) {
         status.textContent = 'Lecture de la pochette… 0 %';
-        frontLines = await ocrLines(front, (p) => status.textContent = `Lecture de la pochette… ${p} %`);
-        const t = guessTitle(frontLines);
+        frontPage = await Reader.ocr(front.file, { crop: front.crop, onProgress: progress('Lecture de la pochette') });
+        const t = Reader.guessTitle(frontPage);
         if (t) { form.title.value = t; done.push('nom'); }
       }
 
-      /* 3. année et label repérés sur les photos */
-      const all = backLines.concat(frontLines);
+      /* 3. MusicBrainz. La liste en ligne est plus propre que la lecture d'une
+            photo, mais ce n'est pas forcément la même édition : on ne la prend que
+            si ses titres se retrouvent sur la pochette. Sinon la lecture reste. */
+      let tracks = read, how = read.length ? 'lus sur la photo' : '';
+      if (form.title.value.trim()) {
+        status.textContent = 'Vérification en ligne…';
+        let cands = [];
+        try { cands = await lookupOnline(form); } catch { /* hors ligne : la lecture suffit */ }
+        const m = Reader.bestMatch(cands, page);
+        if (m) {
+          const c = m.candidate;
+          if (m.overlap >= 0.5 || read.length < 3) {
+            tracks = c.hasSides ? c.tracks : Reader.borrowSides(c.tracks, read);
+            how = m.overlap >= 0.5 ? 'vérifiés avec MusicBrainz' : 'trouvés en ligne — photo peu lisible, à vérifier';
+          }
+          if (m.overlap >= 0.3 || read.length < 3) done.push(...fillMeta(form, c, true));
+        }
+      }
+      /* 4. année et label encore vides : ceux repérés sur les photos */
+      const pages = [page, frontPage].filter(Boolean);
       if (!form.year.value.trim()) {
-        const y = guessYear(all);
+        const y = pages.map(Reader.guessYear).find(Boolean);
         if (y) { form.year.value = y; done.push('année'); }
       }
       if (!form.label.value.trim()) {
-        const l = guessLabel(all);
+        const l = pages.map(Reader.guessLabel).find(Boolean);
         if (l) { form.label.value = l; done.push('label'); }
       }
 
-      /* 4. MusicBrainz complète ce qui manque encore */
-      if (form.title.value.trim()) {
-        status.textContent = 'Recherche en ligne pour compléter…';
-        const filled = await completeOnline(form, { onlyEmpty: true, keepTracks: true });
-        if (filled.length) done.push(...filled);
+      if (tracks.length) {
+        setTracks(tracks);
+        const faces = new Set(tracks.map((t) => Reader.splitSide(t.side).letter).filter(Boolean)).size;
+        done.unshift(`${tracks.length} titres ${how}${faces ? ` (${faces} face${faces > 1 ? 's' : ''})` : ''}`);
       }
 
       status.innerHTML = done.length
-        ? `<span class="ok">Rempli : ${done.join(', ')}.</span> Vérifiez et corrigez avant d'enregistrer.`
+        ? `<span class="ok">Rempli : ${done.map(esc).join(', ')}.</span> Vérifiez et corrigez avant d'enregistrer.`
         : "Rien de lisible sur ces photos. Renseignez le nom du vinyle et utilisez « Compléter depuis MusicBrainz ».";
     } catch (err) {
       status.textContent = 'Échec de la lecture : ' + err.message;
@@ -572,10 +521,16 @@ function showForm(v = null) {
     e.target.disabled = true;
     status.textContent = 'Recherche en ligne…';
     try {
-      const filled = await completeOnline(form, { onlyEmpty: false, keepTracks: false });
-      status.innerHTML = filled.length
-        ? `<span class="ok">Trouvé en ligne — rempli : ${filled.join(', ')}.</span>`
-        : "Album introuvable en ligne — utilise la lecture des photos.";
+      const cands = await lookupOnline(form);
+      if (!cands.length) { status.textContent = "Album introuvable en ligne — utilisez la lecture des photos."; return; }
+      const c = cands[0];
+      const filled = fillMeta(form, c, false);
+      /* Édition sans faces (CD) : on garde celles déjà présentes dans le champ. */
+      const list = c.hasSides ? c.tracks : Reader.borrowSides(c.tracks, Reader.fromText(form.tracks.value));
+      setTracks(list);
+      filled.push(`${list.length} titres`);
+      status.innerHTML = `<span class="ok">Trouvé en ligne — rempli : ${filled.map(esc).join(', ')}.</span>`
+        + (c.hasSides ? '' : " Cette édition n'indique pas les faces : ajoutez une ligne « Face B » avant le premier titre de la face B.");
     } catch (err) { status.textContent = 'Recherche indisponible : ' + err.message; }
     finally { e.target.disabled = false; }
   };
@@ -585,11 +540,7 @@ function showForm(v = null) {
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
     const fd = new FormData(form);
-    const tracks = fd.get('tracks').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
-      const m = l.match(/^([A-D]?\d{1,2})\s*[.\)\-–:]\s*(.+)$/);
-      return m ? { side: m[1].toUpperCase(), title: m[2] } : { side: '', title: l };
-    });
-    fd.set('tracks', JSON.stringify(tracks));
+    fd.set('tracks', JSON.stringify(Reader.fromText(fd.get('tracks'))));
     for (const kind of ['front', 'back']) {
       fd.delete(kind);
       if (shots[kind]?.size) fd.set(kind, shots[kind], kind + '.jpg');
@@ -1038,7 +989,7 @@ $('#q').oninput = renderSearch;
 $('.brand').onclick = (e) => { e.preventDefault(); go('/'); };
 
 (async () => {
-  try { state.me = (await api('/api/me')).user; } catch {}
+  try { const d = await api('/api/me'); state.me = d.user; state.ai = Boolean(d.ai); } catch {}
   renderUserbox();
   route();
 })();
