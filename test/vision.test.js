@@ -43,7 +43,8 @@ test('la requête : les deux photos, la clé, le format imposé', async () => {
   const { url, headers, body } = log[0];
   assert.equal(url, 'https://api.anthropic.com/v1/messages');
   assert.equal(headers['x-api-key'], 'sk-test');
-  assert.equal(headers['anthropic-version'], '2023-06-01');
+  assert.equal(headers['anthropic-version'], '2026-10-21');
+  assert.equal('anthropic-workspace-id' in headers, false, 'pas d\'en-tête d\'espace de travail sans réglage');
   assert.equal(body.model, 'claude-sonnet-5-5');
   assert.equal(body.output_config.format.type, 'json_schema');
   assert.deepEqual(body.output_config.format.schema.required, ['artist', 'title', 'label', 'catalog_number', 'year', 'tracks']);
@@ -57,6 +58,14 @@ test('la requête : les deux photos, la clé, le format imposé', async () => {
   assert.equal(d.year, '1978', 'année extraite de « ℗ 1978 »');
   assert.equal(d.hasSides, true);
   assert.deepEqual(d.tracks.map((t) => t.side), ['A1', 'A2', 'A3', 'B1', 'B2']);
+});
+
+test('clé sans espace de travail : ANTHROPIC_WORKSPACE_ID est transmis', async () => {
+  process.env.ANTHROPIC_WORKSPACE_ID = 'wrkspc_essai';
+  const log = [];
+  await readCovers({ back: IMG }, { fetchImpl: fakeClaude(log, SLEEVE), apiKey: 'k' });
+  delete process.env.ANTHROPIC_WORKSPACE_ID;
+  assert.equal(log[0].headers['anthropic-workspace-id'], 'wrkspc_essai');
 });
 
 test('format imposé refusé (400) : second essai sans, JSON repris dans le texte', async () => {

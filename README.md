@@ -74,6 +74,7 @@ Node 20+ / Express · PostgreSQL · Claude (API d'Anthropic) pour lire les poche
 | `MAIL_FROM` | Expéditeur, ex. `Vinylthèque <bonjour@ton-domaine.fr>` (défaut : `onboarding@resend.dev`) |
 | `APP_URL` | Base des liens envoyés par e-mail (sinon déduite de `RAILWAY_PUBLIC_DOMAIN`) |
 | `ANTHROPIC_API_KEY` | Clé d'API Anthropic. **Absente, le site fonctionne** avec la lecture intégrée au navigateur |
+| `ANTHROPIC_WORKSPACE_ID` | Seulement si la clé n'est pas rattachée à un espace de travail : l'identifiant de l'espace à utiliser (`wrkspc_…`) |
 | `AI_MODEL` | Facultatif : modèle qui lit les photos (défaut : `claude-sonnet-5-5` ; `claude-haiku-5-5` coûte quinze fois moins) |
 | `AI_EFFORT` | Facultatif : effort de réflexion du modèle, `low`, `medium` ou `high` (défaut : `medium`) |
 | `AI_USER_DAILY` | Facultatif : lectures par IA par compte et par jour (défaut : 40) |

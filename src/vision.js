@@ -16,6 +16,7 @@ import { lookupRelease, similarity } from './lookup.js';
 const API = () => (process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
 const MODEL = () => process.env.AI_MODEL || 'claude-sonnet-5-5';
 const EFFORT = () => process.env.AI_EFFORT || 'medium';
+const VERSION = () => process.env.ANTHROPIC_VERSION || '2026-10-21';
 
 export const visionReady = () => Boolean(process.env.ANTHROPIC_API_KEY);
 
@@ -130,7 +131,11 @@ export async function readCovers({ front, back }, { fetchImpl = fetch, apiKey = 
     const t0 = Date.now();
     const r = await fetchImpl(`${API()}/v1/messages`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      headers: {
+        'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': VERSION(),
+        /* une clé qui n'est pas rattachée à un espace de travail doit le nommer à chaque requête */
+        ...(process.env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': process.env.ANTHROPIC_WORKSPACE_ID } : {})
+      },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(90000)
     });
