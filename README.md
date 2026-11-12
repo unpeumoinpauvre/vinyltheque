@@ -9,9 +9,7 @@ Catalogue de collection de vinyles : **deux photos par disque** (recto / verso) 
 - Deux photos par vinyle (recto = pochette, verso = liste des titres), redimensionnées et stockées en base
 - **Recadrage automatique** sur la pochette : le contour de la photo (table, mur, doigts) est détecté par l'énergie des contours et retiré ; désactivable au cas par cas
 - **Métadonnées supprimées** : la photo est ré-encodée dans le navigateur *avant* l'envoi (EXIF, GPS, appareil, date, IPTC, XMP, vignette), puis à nouveau côté serveur par sharp. L'orientation EXIF est appliquée à l'image avant suppression.
-- Titres remplis automatiquement, **face par face** (voir « Lecture des pochettes » plus bas) :
-  1. **Lecture de la photo (OCR)** — Tesseract.js s'exécute dans le navigateur sur la photo du verso ; la mise en page (colonnes, en-têtes « Side A / Face B », numéros A1…B5) est reconstruite pour retrouver l'ordre et les faces
-  2. **MusicBrainz** — vérifie la liste lue, la remplace par la liste en ligne quand c'est bien le même disque, et complète artiste, année, label
+- Titres remplis automatiquement, **face par face** (voir « Lecture des pochettes » plus bas) : les deux photos sont lues par une IA ; sans clé d'API ou en cas de panne, par Tesseract.js dans le navigateur
 - Champs : nom, artiste, année, label, notes, titres
 - Recherche instantanée dans toute la collection, **par album ou par morceau** (« sur quel disque est ce titre ? »)
 - **E-mails via Resend** : confirmation d'adresse à l'inscription, mot de passe oublié, avis de changement de mot de passe. Les jetons sont stockés hachés (SHA-256), valables 48 h (confirmation) et 1 h (réinitialisation), à usage unique. `/api/forgot` répond la même chose que l'adresse existe ou non.
@@ -22,20 +20,15 @@ Deux lectures existent. Avec une clé `ANTHROPIC_API_KEY`, les photos sont lues 
 
 ### Par IA (`src/vision.js`)
 
-Le navigateur envoie le recto et le verso à `POST /api/read`. Le serveur les montre à Claude (API d'Anthropic), qui rend ce qui est imprimé : artiste, titre, label, numéro de catalogue, année, titres face par face — jamais une liste « de mémoire ». Le résultat est recoupé avec MusicBrainz, cherché d'abord par numéro de catalogue (le pressage exact), puis par titre :
+Le navigateur envoie le recto et le verso à `POST /api/read`. Le serveur les montre à Claude (API d'Anthropic), qui rend ce qui est imprimé : artiste, titre, label, année, titres face par face — jamais une liste « de mémoire ». Sur une compilation, chaque titre garde son interprète (« Tino Rossi – Petit Papa Noël »). Aucune base de disques n'est consultée : la fiche est ce qui se lit sur le disque que la personne possède. Si la pochette n'indique pas les faces, la liste est numérotée et la personne ajoute une ligne « Face B ».
 
-- la liste lue sur la pochette reste la référence : c'est ce disque-là que la personne possède ;
-- si la pochette n'indique pas les faces, elles sont reprises du pressage vinyle correspondant ;
-- si la liste n'est pas sur les photos, c'est celle de la base ;
-- année et label : ceux imprimés d'abord, sinon ceux de la base (l'année la plus ancienne des éditions retenues).
-
-Dès que les deux photos d'un nouveau disque sont choisies, la lecture part toute seule. Un champ corrigé à la main n'est plus écrasé. Une lecture coûte environ 3 centimes avec le modèle par défaut ; deux plafonds journaliers (par compte, et pour tout le site) bornent la dépense.
+Dès que les deux photos d'un nouveau disque sont choisies, la lecture part toute seule. Un champ corrigé à la main n'est plus écrasé. Une lecture coûte environ 2 centimes avec le modèle par défaut ; deux plafonds journaliers (par compte, et pour tout le site) bornent la dépense.
 
 Les photos partent chez Anthropic sans aucune information de compte ; les pages « À propos » et « Confidentialité » le disent.
 
-### Intégrée (`public/reader.js`, `src/lookup.js`)
+### Intégrée (`public/reader.js`)
 
-**Sur la photo.** Tesseract rend des mots et leur position, pas une mise en page : sur un verso à deux colonnes, « 1. Titre A      1. Titre B » arrive sur une seule ligne. `reader.js` reconstruit donc la page :
+Tesseract rend des mots et leur position, pas une mise en page : sur un verso à deux colonnes, « 1. Titre A      1. Titre B » arrive sur une seule ligne. `reader.js` reconstruit donc la page :
 
 1. *fond aplani* — chaque pixel est comparé au fond qui l'entoure ; dégradé, reflet ou ombre ne font plus disparaître la moitié du texte, et le texte clair sur fond sombre se lit comme l'inverse ;
 2. *segments* — une ligne est coupée là où un grand blanc sépare deux colonnes ;
@@ -45,19 +38,13 @@ Les photos partent chez Anthropic sans aucune information de compte ; les pages 
 
 La lecture part de la photo d'origine (recadrée), pas de la version réduite envoyée au serveur : les petits caractères en dépendent. Sur une fiche existante, « Remplir automatiquement » relit la photo déjà enregistrée.
 
-**En ligne.** MusicBrainz range les pistes par disque, pas par face ; la face est dans le numéro de piste des pressages vinyle (`A1`, `B2`). `lookup.js` cherche les pressages vinyle d'abord et lit ces numéros. Un CD n'a pas de faces : on n'en invente pas, on reprend celles lues sur la photo.
-
-**Arbitrage.** La liste en ligne est plus propre qu'une lecture de photo, mais ce n'est pas forcément la même édition. Elle n'est retenue que si au moins la moitié de ses titres se retrouvent sur la pochette ; sinon la lecture reste.
-
-Les requêtes vers MusicBrainz passent par une file à une requête par seconde, comme le demande le service, et les réponses sont gardées six heures en mémoire.
-
 ## Tests
 
 ```bash
 npm test
 ```
 
-Sans navigateur ni réseau : `test/fixtures/musicbrainz.js` contient des réponses au format de l'API MusicBrainz (33 tours, CD, double album), et `test/vision.test.js` remplace l'IA par un double qui répond au format de l'API d'Anthropic.
+Sans navigateur ni réseau : `test/vision.test.js` remplace l'IA par un double qui répond au format de l'API d'Anthropic.
 
 ## Stack
 
@@ -79,7 +66,6 @@ Node 20+ / Express · PostgreSQL · Claude (API d'Anthropic) pour lire les poche
 | `AI_EFFORT` | Facultatif : effort de réflexion du modèle, `low`, `medium` ou `high` (défaut : `medium`) |
 | `AI_USER_DAILY` | Facultatif : lectures par IA par compte et par jour (défaut : 40) |
 | `AI_DAILY_LIMIT` | Facultatif : lectures par IA par jour pour tout le site (défaut : 300) |
-| `MUSICBRAINZ_URL` | Facultatif : adresse d'un miroir de l'API MusicBrainz (défaut : `https://musicbrainz.org/ws/2`) |
 | `PORT` | Fourni automatiquement par Railway |
 
 ## Lancer en local

@@ -311,29 +311,6 @@ function showDetail(v) {
 
 /* ----------------------------------------------------- formulaire vinyle */
 
-/* Remplit artiste, année, label depuis une édition trouvée en ligne.
-   onlyEmpty : ne touche pas à ce qui est déjà renseigné. */
-function fillMeta(form, c, onlyEmpty) {
-  const filled = [];
-  const set = (field, value, label) => {
-    if (!value) return;
-    if (onlyEmpty && form[field].value.trim()) return;
-    form[field].value = value;
-    filled.push(label);
-  };
-  set('artist', c.artist, 'artiste');
-  set('year', c.year, 'année');
-  set('label', c.label, 'label');
-  return filled;
-}
-
-async function lookupOnline(form) {
-  const q = new URLSearchParams({ title: form.title.value.trim(), artist: form.artist.value.trim() });
-  const d = await api('/api/lookup?' + q);
-  if (!d.found) return [];
-  return d.candidates?.length ? d.candidates : [d];
-}
-
 function showForm(v = null) {
   openModal(`
     <h2 style="margin:0 0 14px">${v ? 'Modifier le vinyle' : 'Ajouter un vinyle'}</h2>
@@ -355,11 +332,10 @@ function showForm(v = null) {
       <label class="inline"><input type="checkbox" id="autocrop" checked> Recadrer automatiquement sur la pochette</label>
       <div class="actions" style="margin:0">
         <button type="button" class="btn primary" id="btn-ocr">Remplir automatiquement</button>
-        <button type="button" class="btn" id="btn-online">Compléter depuis MusicBrainz</button>
       </div>
       <p class="hint" id="auto-status">${state.ai
         ? 'Ajoutez le recto et le verso : le nom, l\'artiste, l\'année, le label et les titres face par face se remplissent tout seuls.'
-        : 'Lit le verso (titres, face A / face B), puis vérifie la liste avec MusicBrainz quand le disque y figure.'}</p>
+        : 'Ajoutez le verso : les titres sont lus sur la photo, face A puis face B.'}</p>
       <div class="row">
         <label>Nom du vinyle *<input name="title" required value="${esc(v?.title)}"></label>
         <label>Artiste<input name="artist" value="${esc(v?.artist)}"></label>
@@ -443,10 +419,7 @@ function showForm(v = null) {
     if (d.tracks?.length) {
       setTracks(d.tracks);
       const faces = new Set(d.tracks.map((t) => Reader.splitSide(t.side).letter).filter(Boolean)).size;
-      const how = d.how === 'base' ? 'repris de MusicBrainz (liste absente des photos)'
-        : 'lus sur la pochette' + (d.how === 'photo+faces' ? ', faces reprises de MusicBrainz' : '')
-          + (d.confirmed ? ', confirmés par MusicBrainz' : '');
-      done.push(`${d.tracks.length} titres ${how}${faces ? ` (${faces} face${faces > 1 ? 's' : ''})` : ''}`);
+      done.push(`${d.tracks.length} titres lus sur la pochette${faces ? ` (${faces} face${faces > 1 ? 's' : ''})` : ''}`);
     }
     if (!done.length) {
       status.textContent = "Rien de lisible sur ces photos : reprenez-les bien à plat, sans reflet, ou saisissez le nom du vinyle.";
@@ -522,25 +495,8 @@ function showForm(v = null) {
         if (t) { form.title.value = t; done.push('nom'); }
       }
 
-      /* 3. MusicBrainz. La liste en ligne est plus propre que la lecture d'une
-            photo, mais ce n'est pas forcément la même édition : on ne la prend que
-            si ses titres se retrouvent sur la pochette. Sinon la lecture reste. */
-      let tracks = read, how = read.length ? 'lus sur la photo' : '';
-      if (form.title.value.trim()) {
-        status.textContent = 'Vérification en ligne…';
-        let cands = [];
-        try { cands = await lookupOnline(form); } catch { /* hors ligne : la lecture suffit */ }
-        const m = Reader.bestMatch(cands, page);
-        if (m) {
-          const c = m.candidate;
-          if (m.overlap >= 0.5 || read.length < 3) {
-            tracks = c.hasSides ? c.tracks : Reader.borrowSides(c.tracks, read);
-            how = m.overlap >= 0.5 ? 'vérifiés avec MusicBrainz' : 'trouvés en ligne — photo peu lisible, à vérifier';
-          }
-          if (m.overlap >= 0.3 || read.length < 3) done.push(...fillMeta(form, c, true));
-        }
-      }
-      /* 4. année et label encore vides : ceux repérés sur les photos */
+      const tracks = read, how = 'lus sur la photo';
+      /* 3. année et label : ceux repérés sur les photos */
       const pages = [page, frontPage].filter(Boolean);
       if (!form.year.value.trim()) {
         const y = pages.map(Reader.guessYear).find(Boolean);
@@ -559,29 +515,10 @@ function showForm(v = null) {
 
       status.innerHTML = done.length
         ? `<span class="ok">Rempli : ${done.map(esc).join(', ')}.</span> Vérifiez et corrigez avant d'enregistrer.`
-        : "Rien de lisible sur ces photos. Renseignez le nom du vinyle et utilisez « Compléter depuis MusicBrainz ».";
+        : "Rien de lisible sur ces photos : reprenez-les bien à plat, sans reflet, ou saisissez les titres à la main.";
     } catch (err) {
       status.textContent = 'Échec de la lecture : ' + err.message;
     } finally { e.target.disabled = false; }
-  };
-
-  $('#btn-online').onclick = async (e) => {
-    if (!form.title.value.trim()) { status.textContent = "Renseignez d'abord le nom du vinyle."; return; }
-    e.target.disabled = true;
-    status.textContent = 'Recherche en ligne…';
-    try {
-      const cands = await lookupOnline(form);
-      if (!cands.length) { status.textContent = "Album introuvable en ligne — utilisez la lecture des photos."; return; }
-      const c = cands[0];
-      const filled = fillMeta(form, c, false);
-      /* Édition sans faces (CD) : on garde celles déjà présentes dans le champ. */
-      const list = c.hasSides ? c.tracks : Reader.borrowSides(c.tracks, Reader.fromText(form.tracks.value));
-      setTracks(list);
-      filled.push(`${list.length} titres`);
-      status.innerHTML = `<span class="ok">Trouvé en ligne — rempli : ${filled.map(esc).join(', ')}.</span>`
-        + (c.hasSides ? '' : " Cette édition n'indique pas les faces : ajoutez une ligne « Face B » avant le premier titre de la face B.");
-    } catch (err) { status.textContent = 'Recherche indisponible : ' + err.message; }
-    finally { e.target.disabled = false; }
   };
 
   form.onsubmit = async (ev) => {

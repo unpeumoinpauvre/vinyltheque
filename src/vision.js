@@ -1,17 +1,17 @@
 /* Lecture d'une pochette par une IA (Claude, API d'Anthropic).
 
    On lui montre le recto et le verso ; elle rend ce qui y est imprimé : artiste,
-   titre, label, numéro de catalogue, année, et la liste des titres face par face.
-   On recoupe ensuite avec MusicBrainz, qui sert à trois choses : confirmer la
-   liste, donner les faces quand la pochette ne les indique pas, et fournir la
-   liste quand elle n'est pas imprimée sur les photos (elle est parfois sur le
-   macaron du disque seulement).
+   titre, label, année, et la liste des titres face par face. Rien d'autre
+   n'est consulté : la fiche est ce qui se lit sur le disque que la personne a
+   entre les mains. */
 
-   La liste lue sur la pochette passe avant celle de la base : c'est ce disque-là
-   que la personne a entre les mains, pas une autre édition. */
-
+import net from 'node:net';
 import sharp from 'sharp';
-import { lookupRelease, similarity } from './lookup.js';
+
+/* Node n'accorde que 250 ms à chaque adresse (IPv4, IPv6) d'un site avant de
+   passer à la suivante : trop court depuis certains hébergements, où l'appel
+   échouait avant d'avoir commencé (« fetch failed », ETIMEDOUT). */
+net.setDefaultAutoSelectFamilyAttemptTimeout?.(3000);
 
 const API = () => (process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
 const MODEL = () => process.env.AI_MODEL || 'claude-sonnet-5-5';
@@ -27,7 +27,6 @@ Report what is printed on these photos.
 - artist, title: the artist and the album title as printed. Use normal capitalisation even when the sleeve is in capitals. Keep the original language and its accents.
   - On a compilation where the tracks are by different performers, artist is "Artistes divers".
 - label: the record company (for example "Philips", "Blue Note"). Empty string if not visible.
-- catalog_number: the catalogue number as printed (for example "PCS 7088", "6325 071"). Not the barcode. Empty string if not visible.
 - year: the four-digit year printed for this record (the ℗ or © line; the earliest one if there are several). Empty string if no year is printed.
 - tracks: every track, in playing order, exactly as listed on the sleeve.
   - side: the side letter followed by the position on that side: "A1", "A2", "B1"… "Side One", "Side 1", "Face A", "Face 1", "Seite 1", "Lado A" all mean side A; the next side is B; double albums continue with C and D.
@@ -43,7 +42,6 @@ const SCHEMA = {
     artist: { type: 'string' },
     title: { type: 'string' },
     label: { type: 'string' },
-    catalog_number: { type: 'string' },
     year: { type: 'string' },
     tracks: {
       type: 'array',
@@ -55,7 +53,7 @@ const SCHEMA = {
       }
     }
   },
-  required: ['artist', 'title', 'label', 'catalog_number', 'year', 'tracks'],
+  required: ['artist', 'title', 'label', 'year', 'tracks'],
   additionalProperties: false
 };
 
@@ -107,7 +105,7 @@ export function tidyTracks(list) {
 
 /**
  * Montre les photos au modèle. Renvoie
- * { artist, title, label, catalog, year, tracks: [{ side, title }], hasSides }.
+ * { artist, title, label, year, tracks: [{ side, title }], hasSides }.
  */
 export async function readCovers({ front, back }, { fetchImpl = fetch, apiKey = process.env.ANTHROPIC_API_KEY } = {}) {
   if (!apiKey) throw new Error('clé ANTHROPIC_API_KEY absente');
@@ -126,7 +124,7 @@ export async function readCovers({ front, back }, { fetchImpl = fetch, apiKey = 
       max_tokens: 8000,
       system: strict ? PROMPT
         : PROMPT + '\n\nAnswer with one JSON object and nothing else, with exactly these keys: '
-          + 'artist, title, label, catalog_number, year, tracks (a list of {"side", "title"}).',
+          + 'artist, title, label, year, tracks (a list of {"side", "title"}).',
       messages: [{ role: 'user', content }]
     };
     if (strict) body.output_config = { effort: EFFORT(), format: { type: 'json_schema', schema: SCHEMA } };
@@ -170,108 +168,25 @@ export async function readCovers({ front, back }, { fetchImpl = fetch, apiKey = 
     artist: str(raw?.artist),
     title: str(raw?.title),
     label: str(raw?.label),
-    catalog: str(raw?.catalog_number, 40),
     year: (str(raw?.year, 20).match(/\b(19|20)\d{2}\b/) ?? [''])[0],
     tracks,
     hasSides
   };
 }
 
-/* ------------------------------------------------- recoupement avec la base */
-
-/* Où se trouve ce titre dans une édition : le même d'abord, sinon un titre qui
-   le contient (« Melody » ne doit pas prendre la place de « Ballade de Melody
-   Nelson » quand « Melody » existe aussi). */
-function find(list, title) {
-  let i = list.findIndex((e) => similarity(e.title, title) === 1);
-  if (i < 0) i = list.findIndex((e) => similarity(e.title, title) >= 0.75);
-  return i;
-}
-
-/* Part des titres lus sur la pochette qu'on retrouve dans une édition. */
-export function overlap(read, edition) {
-  if (!read.length || !edition.length) return 0;
-  const left = [...edition];
-  let hit = 0;
-  for (const t of read) {
-    const i = find(left, t.title);
-    if (i >= 0) { hit++; left.splice(i, 1); }
-  }
-  return hit / read.length;
-}
-
-/* Donne aux titres lus les faces d'une édition qui les indique. Un titre non
-   retrouvé prend la face du titre de même rang, si les deux listes ont la même
-   longueur ; sinon on renonce (null) plutôt que de deviner. */
-export function borrowSides(read, edition) {
-  const left = edition.map((e, i) => ({ ...e, i }));
-  const out = read.map((t) => {
-    const i = find(left, t.title);
-    return i >= 0 ? { side: left.splice(i, 1)[0].side, title: t.title } : null;
-  });
-  for (let i = 0; i < out.length; i++) {
-    if (out[i]) continue;
-    if (read.length !== edition.length) return null;
-    out[i] = { side: edition[i].side, title: read[i].title };
-  }
-  return out;
-}
-
 /**
- * Lecture complète d'un disque : l'IA lit les photos, MusicBrainz recoupe.
- * Renvoie { title, artist, year, label, tracks, hasSides, how, confirmed }
- *   how : 'photo' (liste lue sur la pochette), 'photo+faces' (lue, faces prises
- *         dans la base), 'base' (liste absente des photos, prise dans la base),
- *         '' (aucune liste).
+ * Lecture complète d'un disque pour le formulaire.
+ * Renvoie { title, artist, year, label, tracks, hasSides, how }
+ *   how : 'photo' quand la liste des titres a été lue, '' quand elle n'est pas
+ *         sur les photos.
  */
-export async function readRecord(images, { lookup = lookupRelease, ...deps } = {}) {
+export async function readRecord(images, deps = {}) {
   const ai = await readCovers(images, deps);
-  const out = {
+  return {
     title: ai.title, artist: ai.artist, year: ai.year, label: ai.label,
     tracks: ai.tracks, hasSides: ai.hasSides,
-    how: ai.tracks.length ? 'photo' : '', confirmed: false
+    how: ai.tracks.length ? 'photo' : ''
   };
-  if (!ai.title) return out;
-
-  let found = null;
-  /* Une compilation n'a pas d'artiste à chercher : la base la range sous
-     « Various Artists », pas sous ce que nous écrivons. */
-  const various = /^(artistes? divers|various( artists)?|divers|compilation)$/i.test(ai.artist);
-  try { found = await lookup({ title: ai.title, artist: various ? '' : ai.artist, catno: ai.catalog }); }
-  catch (e) { console.error('[ia] recoupement MusicBrainz impossible :', e.message); }
-  const cands = found?.found ? (found.candidates?.length ? found.candidates : [found]) : [];
-  if (!cands.length) return out;
-
-  /* L'édition la plus proche de ce qu'on a lu ; à égalité, celle de la même
-     année, puis celle qui indique ses faces. */
-  const scored = cands
-    .map((c) => ({ c, o: overlap(ai.tracks, c.tracks), y: Boolean(ai.year && c.year === ai.year) }))
-    .sort((a, b) => b.o - a.o || Number(b.y) - Number(a.y) || Number(b.c.hasSides) - Number(a.c.hasSides));
-  const best = scored[0];
-
-  if (ai.tracks.length >= 3) {
-    if (best.o >= 0.6) {
-      out.confirmed = true;
-      if (!ai.hasSides && best.c.hasSides) {
-        const withSides = borrowSides(ai.tracks, best.c.tracks);
-        if (withSides) { out.tracks = withSides; out.hasSides = true; out.how = 'photo+faces'; }
-      }
-    }
-  } else {
-    /* Liste absente des photos (ou illisible) : celle de la base, en préférant
-       un pressage vinyle qui donne ses faces. */
-    const pick = scored.find((s) => s.c.hasSides) ?? best;
-    out.tracks = pick.c.tracks; out.hasSides = pick.c.hasSides; out.how = 'base';
-  }
-
-  /* Année et label : ce qui est imprimé sur la pochette d'abord. Sinon ceux de
-     la base, seulement si elle parle bien du même disque ; pour l'année, la
-     plus ancienne des éditions retenues (l'année de l'album, pas d'une réédition). */
-  const trusted = scored.filter((s) => (ai.tracks.length >= 3 ? s.o >= 0.6 : true)).map((s) => s.c);
-  if (!out.year) out.year = trusted.map((c) => c.year).filter(Boolean).sort()[0] ?? '';
-  if (!out.label) out.label = trusted.map((c) => c.label).find(Boolean) ?? '';
-  if (!out.artist) out.artist = trusted.map((c) => c.artist).find(Boolean) ?? '';
-  return out;
 }
 
 /* ------------------------------------------------------------------ plafonds */

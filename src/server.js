@@ -13,7 +13,6 @@ import { signIn, signOut, readUser, requireAuth } from './auth.js';
 import { sendWelcome, sendReset, sendPasswordChanged, mailReady, baseUrl } from './mail.js';
 import { GUIDES, guideBySlug } from './guides.js';
 import { PAGES, pageBySlug } from './pages.js';
-import { lookupRelease } from './lookup.js';
 import { readRecord, forVision, visionReady, takeQuota } from './vision.js';
 import { mountBilling, mountStripeWebhook, FREE_LIMIT, billingReady, isPro, getUser, countVinyls }
   from './billing.js';
@@ -395,24 +394,7 @@ app.get('/api/recent/:id/cover', async (req, res) => {
   res.send(thumb);
 });
 
-/* -------------------------------------- recherche de titres (MusicBrainz) */
-
-/* Limité par adresse : chaque appel en déclenche plusieurs chez MusicBrainz, qui
-   demande de rester autour d'une requête par seconde. */
-app.get('/api/lookup', async (req, res) => {
-  const artist = clean(req.query.artist, 120);
-  const title = clean(req.query.title, 120);
-  if (!title) return res.status(400).json({ error: 'Titre de l\'album requis.' });
-  if (!throttle('lookup:' + req.ip, 20, 60 * 1000))
-    return res.status(429).json({ error: 'Trop de recherches à la suite. Réessayez dans une minute.' });
-
-  try {
-    res.json(await lookupRelease({ title, artist }));
-  } catch (e) {
-    console.error(e);
-    res.status(502).json({ error: 'Recherche en ligne indisponible.' });
-  }
-});
+/* ----------------------------------------------- lecture des pochettes */
 
 /* Lecture des deux photos par l'IA. Les photos viennent du formulaire ; pour
    une fiche déjà enregistrée (id), celles qui manquent sont reprises en base.
@@ -522,7 +504,7 @@ const FAQ = [
   ['Comment les titres des morceaux se remplissent-ils tout seuls ?',
    "Vous photographiez le recto et le verso du disque. Une intelligence artificielle lit "
    + "les deux photos : nom du disque, artiste, année, label et titres, face par face. "
-   + "Le résultat est ensuite recoupé avec MusicBrainz, la base de données musicale ouverte."],
+   + "Vous vérifiez, corrigez si besoin, et c'est enregistré."],
   ['Puis-je savoir sur quel vinyle se trouve un morceau ?',
    "Oui. L'onglet Recherche cherche à la fois dans les noms d'albums, les artistes, "
    + "les labels et les titres de pistes : vous tapez un morceau, Vinylthèque vous dit "

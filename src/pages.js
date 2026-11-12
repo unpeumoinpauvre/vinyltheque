@@ -33,8 +33,7 @@ export const PAGES = [
           + "éditée par Anthropic : les photos du recto et du verso lui sont transmises le temps "
           + "de la lecture, sans votre nom, votre adresse e-mail ni aucune autre information de "
           + "compte. Quand ce service n'est pas disponible, la lecture se fait dans votre "
-          + 'navigateur, par reconnaissance de caractères. Le résultat est recoupé avec '
-          + 'MusicBrainz, la base de données musicale ouverte.',
+          + 'navigateur, par reconnaissance de caractères.',
           'Avant publication, chaque photo est recadrée sur la pochette et réencodée : toutes les '
           + "métadonnées du fichier d'origine, y compris la localisation et le modèle d'appareil, "
           + 'disparaissent au passage.']
@@ -77,8 +76,8 @@ export const PAGES = [
           + 'photographies de pochettes envoyées par les utilisateurs restent la propriété de '
           + 'ceux-ci ; les pochettes elles-mêmes demeurent la propriété de leurs ayants droit '
           + 'respectifs, et leur reproduction ici relève de l\'usage privé du collectionneur.',
-          'Les métadonnées musicales proviennent de MusicBrainz et sont utilisées selon les termes '
-          + 'de cette base de données.']
+          'Les informations sur les disques (titres, artistes, labels) sont lues sur les '
+          + 'pochettes photographiées par les utilisateurs.']
       },
       {
         h: 'Signaler un contenu',
